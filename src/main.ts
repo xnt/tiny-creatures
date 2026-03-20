@@ -4,6 +4,7 @@ import { StarterSelectScene } from './scenes/StarterSelectScene';
 import { OverworldScene } from './scenes/OverworldScene';
 import { BattleScene } from './scenes/BattleScene';
 import { SettingsScene } from './scenes/SettingsScene';
+import { PartyScene } from './scenes/PartyScene';
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -11,7 +12,7 @@ const config: Phaser.Types.Core.GameConfig = {
   height: 600,
   backgroundColor: '#1a1a2e',
   parent: document.body,
-  scene: [BootScene, StarterSelectScene, OverworldScene, BattleScene, SettingsScene],
+  scene: [BootScene, StarterSelectScene, OverworldScene, BattleScene, SettingsScene, PartyScene],
   physics: {
     default: 'arcade',
     arcade: { debug: false },

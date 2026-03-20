@@ -32,6 +32,9 @@ export class OverworldScene extends Phaser.Scene {
   private partyText!: Phaser.GameObjects.Text;
   private statsText!: Phaser.GameObjects.Text;
 
+  /** Virtual D-pad state for touch controls */
+  private dpadDir: { x: number; y: number } = { x: 0, y: 0 };
+
   constructor() {
     super({ key: 'OverworldScene' });
   }
@@ -75,8 +78,17 @@ export class OverworldScene extends Phaser.Scene {
 
     this.updateHud();
 
+    // Party button
+    const partyBtn = this.add.text(this.cameras.main.width / 2 - 55, 6, '[ PARTY ]', {
+      fontSize: '13px', fontFamily: 'monospace', color: '#88ffaa',
+    }).setOrigin(0.5, 0).setInteractive({ useHandCursor: true });
+    partyBtn.on('pointerdown', () => {
+      this.persistSave();
+      this.scene.start('PartyScene', { save: this.save });
+    });
+
     // Menu button
-    const menuBtn = this.add.text(this.cameras.main.width / 2, 6, '[ MENU ]', {
+    const menuBtn = this.add.text(this.cameras.main.width / 2 + 55, 6, '[ MENU ]', {
       fontSize: '13px', fontFamily: 'monospace', color: '#aaaaff',
     }).setOrigin(0.5, 0).setInteractive({ useHandCursor: true });
     menuBtn.on('pointerdown', () => {
@@ -85,9 +97,12 @@ export class OverworldScene extends Phaser.Scene {
     });
 
     // Instructions
-    this.add.text(this.cameras.main.width / 2, this.cameras.main.height - 14, 'WASD/Arrows to move • Walk in tall grass to find creatures!', {
+    this.add.text(this.cameras.main.width / 2, this.cameras.main.height - 14, 'WASD/Arrows to move \u2022 Walk in tall grass to find creatures!', {
       fontSize: '11px', fontFamily: 'monospace', color: '#aaaaaa',
     }).setOrigin(0.5);
+
+    // Virtual D-pad (touch / mobile)
+    this.createDpad();
   }
 
   update(_time: number, delta: number): void {
@@ -95,10 +110,10 @@ export class OverworldScene extends Phaser.Scene {
     this.playerVelX = 0;
     this.playerVelY = 0;
 
-    const left = this.cursors?.left.isDown || this.wasd?.A.isDown;
-    const right = this.cursors?.right.isDown || this.wasd?.D.isDown;
-    const up = this.cursors?.up.isDown || this.wasd?.W.isDown;
-    const down = this.cursors?.down.isDown || this.wasd?.S.isDown;
+    const left = this.cursors?.left.isDown || this.wasd?.A.isDown || this.dpadDir.x < 0;
+    const right = this.cursors?.right.isDown || this.wasd?.D.isDown || this.dpadDir.x > 0;
+    const up = this.cursors?.up.isDown || this.wasd?.W.isDown || this.dpadDir.y < 0;
+    const down = this.cursors?.down.isDown || this.wasd?.S.isDown || this.dpadDir.y > 0;
 
     if (left) this.playerVelX = -PLAYER_SPEED;
     else if (right) this.playerVelX = PLAYER_SPEED;
@@ -215,20 +230,164 @@ export class OverworldScene extends Phaser.Scene {
   }
 
   private drawPlayer(): void {
-    this.player.clear();
-    // Body
-    this.player.fillStyle(0xff4444, 1);
-    this.player.fillCircle(0, 0, 10);
-    // Hat
-    this.player.fillStyle(0xdd2222, 1);
-    this.player.fillRect(-8, -14, 16, 6);
+    const p = this.player;
+    p.clear();
+
+    // ── Shadow ──
+    p.fillStyle(0x000000, 0.18);
+    p.fillEllipse(0, 14, 20, 6);
+
+    // ── Legs ──
+    p.fillStyle(0x2255aa, 1);          // dark-blue jeans
+    p.fillRoundedRect(-6, 6, 5, 9, 1);
+    p.fillRoundedRect(1, 6, 5, 9, 1);
+    // Shoes
+    p.fillStyle(0x443322, 1);
+    p.fillRoundedRect(-7, 13, 6, 3, 1);
+    p.fillRoundedRect(1, 13, 6, 3, 1);
+
+    // ── Torso / jacket ──
+    p.fillStyle(0x3366cc, 1);          // blue jacket
+    p.fillRoundedRect(-7, -4, 14, 12, 2);
+    // Jacket zipper line
+    p.lineStyle(1, 0x2244aa, 0.6);
+    p.beginPath(); p.moveTo(0, -2); p.lineTo(0, 7); p.strokePath();
+
+    // ── Backpack (visible behind right shoulder) ──
+    p.fillStyle(0xcc4422, 1);
+    p.fillRoundedRect(6, -3, 5, 9, 2);
+    p.lineStyle(1, 0x993311, 0.5);
+    p.strokeRoundedRect(6, -3, 5, 9, 2);
+
+    // ── Arms ──
+    p.fillStyle(0x3366cc, 1);
+    // Left arm
+    p.fillRoundedRect(-10, -2, 4, 9, 1);
+    // Right arm
+    p.fillRoundedRect(6, -2, 4, 9, 1);
+    // Hands (skin)
+    p.fillStyle(0xffccaa, 1);
+    p.fillCircle(-8, 8, 2);
+    p.fillCircle(8, 8, 2);
+
+    // ── Neck ──
+    p.fillStyle(0xffccaa, 1);
+    p.fillRect(-2, -6, 4, 3);
+
+    // ── Head ──
+    p.fillStyle(0xffccaa, 1);           // skin tone
+    p.fillCircle(0, -11, 8);
+
+    // ── Hair ──
+    p.fillStyle(0x332211, 1);           // dark brown hair
+    // Hair top
+    p.beginPath();
+    p.arc(0, -13, 8.5, Math.PI + 0.3, -0.3, false);
+    p.fillPath();
+    // Side tufts
+    p.fillRect(-8, -15, 3, 5);
+    p.fillRect(5, -15, 3, 5);
+
+    // ── Cap ──
+    p.fillStyle(0xcc2222, 1);           // red cap
+    p.beginPath();
+    p.arc(0, -14, 8, Math.PI + 0.15, -0.15, false);
+    p.fillPath();
+    // Cap brim
+    p.fillStyle(0xaa1111, 1);
+    p.fillRoundedRect(-9, -14, 18, 3, 1);
+    // Cap logo dot
+    p.fillStyle(0xffffff, 1);
+    p.fillCircle(0, -17, 1.5);
+
+    // ── Face ──
     // Eyes
-    this.player.fillStyle(0xffffff, 1);
-    this.player.fillCircle(-4, -2, 3);
-    this.player.fillCircle(4, -2, 3);
-    this.player.fillStyle(0x000000, 1);
-    this.player.fillCircle(-3, -2, 1.5);
-    this.player.fillCircle(5, -2, 1.5);
+    p.fillStyle(0xffffff, 1);
+    p.fillEllipse(-3, -11, 4, 3.5);
+    p.fillEllipse(3, -11, 4, 3.5);
+    // Irises
+    p.fillStyle(0x224488, 1);
+    p.fillCircle(-3, -11, 1.4);
+    p.fillCircle(3, -11, 1.4);
+    // Pupils
+    p.fillStyle(0x000000, 1);
+    p.fillCircle(-3, -11, 0.7);
+    p.fillCircle(3, -11, 0.7);
+    // Highlights
+    p.fillStyle(0xffffff, 0.9);
+    p.fillCircle(-3.5, -11.5, 0.5);
+    p.fillCircle(2.5, -11.5, 0.5);
+    // Mouth
+    p.lineStyle(1, 0xcc8877, 0.7);
+    p.beginPath();
+    p.arc(0, -7.5, 2, 0.2, Math.PI - 0.2, false);
+    p.strokePath();
+  }
+
+  // ─── Virtual D-pad ─────────────────────────────────────────
+  private createDpad(): void {
+    const h = this.cameras.main.height;
+    const cx = 90;            // centre of the D-pad
+    const cy = h - 90;
+    const btnSize = 40;       // each direction button
+    const gap = 2;
+    const alpha = 0.3;        // resting opacity
+    const alphaActive = 0.55; // pressed opacity
+
+    // Centre circle (cosmetic)
+    const centre = this.add.graphics();
+    centre.fillStyle(0xffffff, alpha * 0.4);
+    centre.fillCircle(cx, cy, 12);
+
+    const makeDpadBtn = (
+      ox: number, oy: number,
+      dirX: number, dirY: number,
+      arrow: string,
+    ) => {
+      const bx = cx + ox - btnSize / 2;
+      const by = cy + oy - btnSize / 2;
+
+      const bg = this.add.graphics();
+      bg.fillStyle(0xffffff, alpha);
+      bg.fillRoundedRect(bx, by, btnSize, btnSize, 6);
+
+      this.add.text(cx + ox, cy + oy, arrow, {
+        fontSize: '18px', fontFamily: 'monospace', color: '#ffffff',
+      }).setOrigin(0.5).setAlpha(alpha + 0.15);
+
+      const zone = this.add.zone(cx + ox, cy + oy, btnSize, btnSize)
+        .setInteractive({ useHandCursor: false });
+
+      zone.on('pointerdown', () => {
+        this.dpadDir.x = dirX;
+        this.dpadDir.y = dirY;
+        bg.clear();
+        bg.fillStyle(0xffffff, alphaActive);
+        bg.fillRoundedRect(bx, by, btnSize, btnSize, 6);
+      });
+
+      // Release on this specific button
+      zone.on('pointerup', () => {
+        if (dirX !== 0) this.dpadDir.x = 0;
+        if (dirY !== 0) this.dpadDir.y = 0;
+        bg.clear();
+        bg.fillStyle(0xffffff, alpha);
+        bg.fillRoundedRect(bx, by, btnSize, btnSize, 6);
+      });
+      zone.on('pointerout', () => {
+        if (dirX !== 0) this.dpadDir.x = 0;
+        if (dirY !== 0) this.dpadDir.y = 0;
+        bg.clear();
+        bg.fillStyle(0xffffff, alpha);
+        bg.fillRoundedRect(bx, by, btnSize, btnSize, 6);
+      });
+    };
+
+    const offset = btnSize + gap;
+    makeDpadBtn(0, -offset, 0, -1, '\u25B2');       // Up
+    makeDpadBtn(0, offset, 0, 1, '\u25BC');          // Down
+    makeDpadBtn(-offset, 0, -1, 0, '\u25C0');        // Left
+    makeDpadBtn(offset, 0, 1, 0, '\u25B6');          // Right
   }
 
   private triggerEncounter(): void {
