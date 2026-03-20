@@ -112,6 +112,19 @@ export class PartyScene extends Phaser.Scene {
     card.lineStyle(1, 0x555577, 0.8);
     card.strokeRoundedRect(x, y, cw, ch, 6);
 
+    // Tap to open creature detail
+    const cardZone = this.add.zone(x + cw / 2, y + ch / 2, cw, ch)
+      .setInteractive({ useHandCursor: true });
+    cardZone.on('pointerover', () => { card.clear(); card.fillStyle(0x2a2a55, 0.95); card.fillRoundedRect(x, y, cw, ch, 6); card.lineStyle(1, 0x7777aa, 1); card.strokeRoundedRect(x, y, cw, ch, 6); });
+    cardZone.on('pointerout', () => { card.clear(); card.fillStyle(0x222244, 0.9); card.fillRoundedRect(x, y, cw, ch, 6); card.lineStyle(1, 0x555577, 0.8); card.strokeRoundedRect(x, y, cw, ch, 6); });
+    cardZone.on('pointerdown', () => {
+      this.scene.start('CreatureDetailScene', {
+        creature,
+        save: this.save,
+        returnScene: 'PartyScene',
+      });
+    });
+
     // ── Creature sprite (small) ──
     const spriteX = x + 38;
     const spriteY = y + 42;

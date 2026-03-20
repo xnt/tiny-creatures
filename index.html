@@ -6,11 +6,47 @@
     <title>Tiny Creatures</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      body { background: #111; display: flex; justify-content: center; align-items: center; min-height: 100vh; overflow: hidden; }
+      html, body { width: 100%; height: 100%; overflow: hidden; background: #111; }
+      #game {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
       canvas { image-rendering: pixelated; }
+      #attribution {
+        position: fixed;
+        bottom: 6px;
+        left: 0;
+        width: 100%;
+        text-align: center;
+        font-family: monospace;
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.5);
+        pointer-events: auto;
+        z-index: 10;
+      }
+      #attribution a {
+        color: rgba(255, 255, 255, 0.75);
+        text-decoration: underline;
+        text-decoration-color: rgba(255, 255, 255, 0.3);
+        text-underline-offset: 2px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+        padding-bottom: 1px;
+      }
+      #attribution a:hover {
+        color: rgba(255, 255, 255, 0.95);
+        text-decoration-color: rgba(255, 255, 255, 0.7);
+        border-bottom-color: rgba(255, 255, 255, 0.5);
+      }
     </style>
   </head>
   <body>
+    <div id="game"></div>
+    <div id="attribution">
+      Made with ❤️ &amp; Grok by <a href="https://twitter.com/xnt" target="_blank" rel="noopener">Vicente Plata</a>. <a href="https://github.com/xnt/tiny-creatures/" target="_blank" rel="noopener">Read the source or contribute</a>.
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -79,7 +79,7 @@ export class OverworldScene extends Phaser.Scene {
     this.updateHud();
 
     // Party button
-    const partyBtn = this.add.text(this.cameras.main.width / 2 - 55, 6, '[ PARTY ]', {
+    const partyBtn = this.add.text(this.cameras.main.width / 2 - 80, 6, '[ PARTY ]', {
       fontSize: '13px', fontFamily: 'monospace', color: '#88ffaa',
     }).setOrigin(0.5, 0).setInteractive({ useHandCursor: true });
     partyBtn.on('pointerdown', () => {
@@ -87,19 +87,23 @@ export class OverworldScene extends Phaser.Scene {
       this.scene.start('PartyScene', { save: this.save });
     });
 
+    // Dex button
+    const dexBtn = this.add.text(this.cameras.main.width / 2, 6, '[ DEX ]', {
+      fontSize: '13px', fontFamily: 'monospace', color: '#ffcc66',
+    }).setOrigin(0.5, 0).setInteractive({ useHandCursor: true });
+    dexBtn.on('pointerdown', () => {
+      this.persistSave();
+      this.scene.start('CreatureDexScene', { save: this.save });
+    });
+
     // Menu button
-    const menuBtn = this.add.text(this.cameras.main.width / 2 + 55, 6, '[ MENU ]', {
+    const menuBtn = this.add.text(this.cameras.main.width / 2 + 80, 6, '[ MENU ]', {
       fontSize: '13px', fontFamily: 'monospace', color: '#aaaaff',
     }).setOrigin(0.5, 0).setInteractive({ useHandCursor: true });
     menuBtn.on('pointerdown', () => {
       this.persistSave();
       this.scene.start('SettingsScene');
     });
-
-    // Instructions
-    this.add.text(this.cameras.main.width / 2, this.cameras.main.height - 14, 'WASD/Arrows to move \u2022 Walk in tall grass to find creatures!', {
-      fontSize: '11px', fontFamily: 'monospace', color: '#aaaaaa',
-    }).setOrigin(0.5);
 
     // Virtual D-pad (touch / mobile)
     this.createDpad();

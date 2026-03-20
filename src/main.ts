@@ -5,14 +5,16 @@ import { OverworldScene } from './scenes/OverworldScene';
 import { BattleScene } from './scenes/BattleScene';
 import { SettingsScene } from './scenes/SettingsScene';
 import { PartyScene } from './scenes/PartyScene';
+import { CreatureDexScene } from './scenes/CreatureDexScene';
+import { CreatureDetailScene } from './scenes/CreatureDetailScene';
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   width: 800,
   height: 600,
   backgroundColor: '#1a1a2e',
-  parent: document.body,
-  scene: [BootScene, StarterSelectScene, OverworldScene, BattleScene, SettingsScene, PartyScene],
+  parent: 'game',
+  scene: [BootScene, StarterSelectScene, OverworldScene, BattleScene, SettingsScene, PartyScene, CreatureDexScene, CreatureDetailScene],
   physics: {
     default: 'arcade',
     arcade: { debug: false },
