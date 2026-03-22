@@ -203,6 +203,21 @@ export class PartyScene extends Phaser.Scene {
         this.drawUI();
       }, '10px');
     }
+
+    // ── Move to Front button (only if not already first and has HP) ──
+    const isFirst = this.save.party[0]?.uid === creature.uid;
+    if (!isFirst && creature.currentHp > 0) {
+      this.drawButton(x + cw - 75, y + ch - 22, 65, 16, '⬆ Front', 0x335577, () => {
+        // Move this creature to the front of the party
+        const idx = this.save.party.findIndex(c => c.uid === creature.uid);
+        if (idx > 0) {
+          const [removed] = this.save.party.splice(idx, 1);
+          this.save.party.unshift(removed);
+          saveGame(this.save);
+          this.drawUI();
+        }
+      }, '9px');
+    }
   }
 
   // ─── Reusable button ─────────────────────────────────────

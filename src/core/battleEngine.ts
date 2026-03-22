@@ -80,12 +80,12 @@ export function aiPickMove(creature: CreatureInstance): Attack {
 /**
  * Attempt to catch a wild creature.
  * Rate improves as HP decreases. Roughly:
- *   catchRate = (1 - currentHp/maxHp) * 0.65 + 0.3  → range 0.3 to 0.95
+ *   catchRate = (1 - currentHp/maxHp) * 0.8 + 0.65  → range 0.65 to ~1.45 (clamped by random)
  * Three shake checks — if all three pass, the catch succeeds.
  */
 export function attemptCatch(target: CreatureInstance): CatchAttemptResult {
   const hpRatio = target.currentHp / target.maxHp;
-  const catchRate = (1 - hpRatio) * 0.65 + 0.3;
+  const catchRate = (1 - hpRatio) * 0.8 + 0.65;
 
   // Each shake is a separate probability check
   let shakes = 0;

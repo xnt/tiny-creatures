@@ -152,16 +152,28 @@ describe('recalcStats', () => {
     recalcStats(creature);
     expect(creature.maxHp).toBeGreaterThan(oldMaxHp);
   });
+
+  it('does nothing for unknown species', () => {
+    const creature = createCreature('rumbear', 10);
+    const oldMaxHp = creature.maxHp;
+    const oldAttack = creature.attack;
+    creature.speciesId = 'nonexistent_species';
+    creature.level = 20;
+    recalcStats(creature);
+    // Stats should remain unchanged when species is not found
+    expect(creature.maxHp).toBe(oldMaxHp);
+    expect(creature.attack).toBe(oldAttack);
+  });
 });
 
 describe('CREATURE_DEX', () => {
-  it('contains 20 creatures', () => {
-    expect(CREATURE_DEX.length).toBe(20);
+  it('contains 32 creatures', () => {
+    expect(CREATURE_DEX.length).toBe(32);
   });
 
   it('has unique IDs', () => {
     const ids = CREATURE_DEX.map(c => c.id);
-    expect(new Set(ids).size).toBe(20);
+    expect(new Set(ids).size).toBe(32);
   });
 
   it('every creature has at least 3 learnable attacks', () => {
@@ -170,11 +182,14 @@ describe('CREATURE_DEX', () => {
     });
   });
 
-  it('contains all four types', () => {
+  it('contains all seven types', () => {
     const types = new Set(CREATURE_DEX.map(c => c.type));
     expect(types.has(CreatureType.Fire)).toBe(true);
     expect(types.has(CreatureType.Water)).toBe(true);
     expect(types.has(CreatureType.Grass)).toBe(true);
     expect(types.has(CreatureType.Normal)).toBe(true);
+    expect(types.has(CreatureType.Dark)).toBe(true);
+    expect(types.has(CreatureType.Psychic)).toBe(true);
+    expect(types.has(CreatureType.Fighting)).toBe(true);
   });
 });

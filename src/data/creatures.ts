@@ -149,6 +149,96 @@ export const CREATURE_DEX: CreatureSpecies[] = [
     shape: { bodyColor: 0xddddff, bodyShape: 'circle', eyeColor: 0xff0066, accentColor: 0xaaaaff, hasTail: true, hasCrest: false, hasWings: false, size: 0.55 },
     description: 'A tiny glowing mouse, fast as lightning.',
   },
+
+  // ── DARK ────────────────────────────────────────────────────
+  {
+    id: 'shadewisp', name: 'Shadewisp', type: CreatureType.Dark,
+    baseStats: { hp: 45, attack: 50, defense: 35, speed: 65 },
+    learnableAttacks: [A.SuckerPunch, A.ShadowClaw, A.NightSlash, A.QuickStrike, A.Tackle],
+    shape: { bodyColor: 0x2a0a3a, bodyShape: 'circle', eyeColor: 0xff00ff, accentColor: 0x4a1a5a, hasTail: false, hasCrest: false, hasWings: true, size: 0.75 },
+    description: 'A wisp of living shadow that flits through the night.',
+  },
+  {
+    id: 'duskprowler', name: 'Duskprowler', type: CreatureType.Dark,
+    baseStats: { hp: 55, attack: 60, defense: 45, speed: 50 },
+    learnableAttacks: [A.NightSlash, A.Crunch, A.ShadowClaw, A.Scratch, A.Slam],
+    shape: { bodyColor: 0x1a1a2e, bodyShape: 'oval', eyeColor: 0xffff00, accentColor: 0x3a3a5e, hasTail: true, hasCrest: false, hasWings: false, size: 1.0 },
+    description: 'A stealthy predator that hunts at twilight.',
+  },
+  {
+    id: 'voidling', name: 'Voidling', type: CreatureType.Dark,
+    baseStats: { hp: 50, attack: 55, defense: 55, speed: 40 },
+    learnableAttacks: [A.DarkPulse, A.Crunch, A.NightSlash, A.BodyPress, A.Headbutt],
+    shape: { bodyColor: 0x0a0a1a, bodyShape: 'diamond', eyeColor: 0x00ffff, accentColor: 0x2a2a4a, hasTail: false, hasCrest: true, hasWings: false, size: 0.9 },
+    description: 'A creature born from the void between stars.',
+  },
+  {
+    id: 'nightmareon', name: 'Nightmareon', type: CreatureType.Dark,
+    baseStats: { hp: 65, attack: 70, defense: 50, speed: 45 },
+    learnableAttacks: [A.DarkPulse, A.NightSlash, A.ShadowClaw, A.Slam, A.SuckerPunch],
+    shape: { bodyColor: 0x1a0a2a, bodyShape: 'triangle', eyeColor: 0xff3366, accentColor: 0x4a2a6a, hasTail: true, hasCrest: true, hasWings: true, size: 1.3 },
+    description: 'A fearsome beast that feeds on nightmares.',
+  },
+
+  // ── PSYCHIC ─────────────────────────────────────────────────
+  {
+    id: 'mentite', name: 'Mentite', type: CreatureType.Psychic,
+    baseStats: { hp: 40, attack: 45, defense: 35, speed: 60 },
+    learnableAttacks: [A.Confusion, A.MindReader, A.Psybeam, A.QuickStrike, A.Tackle],
+    shape: { bodyColor: 0xff88ff, bodyShape: 'circle', eyeColor: 0x440044, accentColor: 0xffaaff, hasTail: false, hasCrest: true, hasWings: false, size: 0.7 },
+    description: 'A small creature with powerful mental abilities.',
+  },
+  {
+    id: 'oraclop', name: 'Oraclop', type: CreatureType.Psychic,
+    baseStats: { hp: 55, attack: 50, defense: 50, speed: 45 },
+    learnableAttacks: [A.Psybeam, A.Confusion, A.FutureSight, A.Headbutt, A.Slam],
+    shape: { bodyColor: 0xcc66cc, bodyShape: 'oval', eyeColor: 0xffff00, accentColor: 0xee88ee, hasTail: false, hasCrest: true, hasWings: false, size: 1.0 },
+    description: 'A seer creature that glimpses the future.',
+  },
+  {
+    id: 'cerebrix', name: 'Cerebrix', type: CreatureType.Psychic,
+    baseStats: { hp: 60, attack: 55, defense: 60, speed: 35 },
+    learnableAttacks: [A.Psychic, A.Psybeam, A.MindReader, A.BodyPress, A.Headbutt],
+    shape: { bodyColor: 0xaa44aa, bodyShape: 'diamond', eyeColor: 0x00ffff, accentColor: 0xcc66cc, hasTail: false, hasCrest: true, hasWings: false, size: 1.1 },
+    description: 'Its massive brain pulses with psychic energy.',
+  },
+  {
+    id: 'aetherion', name: 'Aetherion', type: CreatureType.Psychic,
+    baseStats: { hp: 70, attack: 65, defense: 55, speed: 50 },
+    learnableAttacks: [A.Psychic, A.FutureSight, A.Psybeam, A.Slam, A.Confusion],
+    shape: { bodyColor: 0xeeaaff, bodyShape: 'triangle', eyeColor: 0x660066, accentColor: 0xffffff, hasTail: false, hasCrest: true, hasWings: true, size: 1.4 },
+    description: 'A being of pure mental energy floating through the cosmos.',
+  },
+
+  // ── FIGHTING ────────────────────────────────────────────────
+  {
+    id: 'punchpup', name: 'Punchpup', type: CreatureType.Fighting,
+    baseStats: { hp: 50, attack: 55, defense: 40, speed: 55 },
+    learnableAttacks: [A.LowKick, A.KarateChop, A.BrickBreak, A.Tackle, A.QuickStrike],
+    shape: { bodyColor: 0xcc4444, bodyShape: 'circle', eyeColor: 0x000000, accentColor: 0xff6666, hasTail: true, hasCrest: false, hasWings: false, size: 0.8 },
+    description: 'A scrappy pup always ready for a sparring match.',
+  },
+  {
+    id: 'monkala', name: 'Monkala', type: CreatureType.Fighting,
+    baseStats: { hp: 55, attack: 60, defense: 55, speed: 40 },
+    learnableAttacks: [A.KarateChop, A.LowKick, A.CrossChop, A.Headbutt, A.Slam],
+    shape: { bodyColor: 0x885544, bodyShape: 'oval', eyeColor: 0x111111, accentColor: 0xaa7766, hasTail: false, hasCrest: false, hasWings: false, size: 1.0 },
+    description: 'A disciplined fighter that meditates between battles.',
+  },
+  {
+    id: 'brawlbear', name: 'Brawlbear', type: CreatureType.Fighting,
+    baseStats: { hp: 70, attack: 70, defense: 60, speed: 30 },
+    learnableAttacks: [A.CrossChop, A.DynamicPunch, A.BrickBreak, A.BodyPress, A.Slam],
+    shape: { bodyColor: 0x663322, bodyShape: 'square', eyeColor: 0xffcc00, accentColor: 0x885544, hasTail: false, hasCrest: false, hasWings: false, size: 1.4 },
+    description: 'A massive bear whose fists can shatter stone.',
+  },
+  {
+    id: 'dojodrake', name: 'Dojodrake', type: CreatureType.Fighting,
+    baseStats: { hp: 65, attack: 75, defense: 55, speed: 45 },
+    learnableAttacks: [A.DynamicPunch, A.CrossChop, A.BrickBreak, A.Slam, A.KarateChop],
+    shape: { bodyColor: 0xaa3322, bodyShape: 'triangle', eyeColor: 0xffff00, accentColor: 0xcc5544, hasTail: true, hasCrest: true, hasWings: true, size: 1.3 },
+    description: 'A dragon that has mastered the ancient martial arts.',
+  },
 ];
 
 export function getSpeciesById(id: string): CreatureSpecies | undefined {

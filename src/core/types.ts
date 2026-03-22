@@ -4,6 +4,9 @@ export enum CreatureType {
   Fire = 'fire',
   Water = 'water',
   Grass = 'grass',
+  Dark = 'dark',
+  Psychic = 'psychic',
+  Fighting = 'fighting',
 }
 
 /** Type effectiveness multipliers */
@@ -13,24 +16,63 @@ const EFFECTIVENESS: Record<CreatureType, Record<CreatureType, number>> = {
     [CreatureType.Fire]: 1,
     [CreatureType.Water]: 1,
     [CreatureType.Grass]: 1,
+    [CreatureType.Dark]: 1,
+    [CreatureType.Psychic]: 1,
+    [CreatureType.Fighting]: 1,
   },
   [CreatureType.Fire]: {
     [CreatureType.Normal]: 1,
     [CreatureType.Fire]: 0.5,
     [CreatureType.Water]: 0.5,
     [CreatureType.Grass]: 2,
+    [CreatureType.Dark]: 1,
+    [CreatureType.Psychic]: 1,
+    [CreatureType.Fighting]: 1,
   },
   [CreatureType.Water]: {
     [CreatureType.Normal]: 1,
     [CreatureType.Fire]: 2,
     [CreatureType.Water]: 0.5,
     [CreatureType.Grass]: 0.5,
+    [CreatureType.Dark]: 1,
+    [CreatureType.Psychic]: 1,
+    [CreatureType.Fighting]: 1,
   },
   [CreatureType.Grass]: {
     [CreatureType.Normal]: 1,
     [CreatureType.Fire]: 0.5,
     [CreatureType.Water]: 2,
     [CreatureType.Grass]: 0.5,
+    [CreatureType.Dark]: 1,
+    [CreatureType.Psychic]: 1,
+    [CreatureType.Fighting]: 1,
+  },
+  [CreatureType.Dark]: {
+    [CreatureType.Normal]: 1,
+    [CreatureType.Fire]: 1,
+    [CreatureType.Water]: 1,
+    [CreatureType.Grass]: 1,
+    [CreatureType.Dark]: 0.5,
+    [CreatureType.Psychic]: 2,
+    [CreatureType.Fighting]: 0.5,
+  },
+  [CreatureType.Psychic]: {
+    [CreatureType.Normal]: 1,
+    [CreatureType.Fire]: 1,
+    [CreatureType.Water]: 1,
+    [CreatureType.Grass]: 1,
+    [CreatureType.Dark]: 0.5,
+    [CreatureType.Psychic]: 0.5,
+    [CreatureType.Fighting]: 2,
+  },
+  [CreatureType.Fighting]: {
+    [CreatureType.Normal]: 1,
+    [CreatureType.Fire]: 1,
+    [CreatureType.Water]: 1,
+    [CreatureType.Grass]: 1,
+    [CreatureType.Dark]: 2,
+    [CreatureType.Psychic]: 0.5,
+    [CreatureType.Fighting]: 0.5,
   },
 };
 
@@ -98,6 +140,11 @@ export interface CreatureInstance {
   ivs: BaseStats;
 }
 
+/** Item types available in the game */
+export enum ItemType {
+  FishingRod = 'fishing_rod',
+}
+
 /** Save-game data structure */
 export interface SaveData {
   party: CreatureInstance[];
@@ -110,7 +157,9 @@ export interface SaveData {
   wins: number;
   /** Total creatures caught */
   caught: number;
+  /** Items the player owns */
+  items: ItemType[];
   version: number;
 }
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;

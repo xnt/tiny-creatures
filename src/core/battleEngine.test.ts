@@ -40,6 +40,15 @@ describe('calculateDamage', () => {
     const { damage } = calculateDamage(attacker, defender, testAttack);
     expect(damage).toBeGreaterThanOrEqual(1);
   });
+
+  it('returns neutral effectiveness for creature with unknown species', () => {
+    const attacker = createCreature('emberlynx', 10);
+    // Create a creature and corrupt its speciesId to test fallback
+    const defender = createCreature('splashlet', 10);
+    defender.speciesId = 'nonexistent_species';
+    const { effectiveness } = calculateDamage(attacker, defender, testAttack);
+    expect(effectiveness).toBe(1); // fallback to neutral
+  });
 });
 
 describe('executeTurn', () => {
@@ -139,6 +148,16 @@ describe('awardXp', () => {
     const levels = awardXp(creature, 100);
     // Should have leveled at least once from level 2 with 100-level XP reward
     expect(levels).toBeGreaterThanOrEqual(0);
+  });
+
+  it('caps level gains with safety limit', () => {
+    const creature = createCreature('emberlynx', 1);
+    creature.xp = 0;
+    // Give an enormous XP reward that would level many times
+    const levels = awardXp(creature, 1000);
+    // The safety break allows up to 11 levels (check is after increment)
+    expect(levels).toBeLessThanOrEqual(11);
+    expect(levels).toBeGreaterThan(0);
   });
 });
 

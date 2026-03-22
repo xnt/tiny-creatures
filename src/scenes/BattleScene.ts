@@ -187,6 +187,7 @@ export class BattleScene extends Phaser.Scene {
 
   private showSwitchMenu(): void {
     this.clearButtons();
+    this.state = 'choosing';
     const alive = this.save.party.filter(c => c.currentHp > 0 && c.uid !== this.playerCreature.uid);
 
     if (alive.length === 0) {
@@ -198,12 +199,14 @@ export class BattleScene extends Phaser.Scene {
     this.messageText.setText('Switch to:');
     const w = this.cameras.main.width;
     const h = this.cameras.main.height;
-    const btnW = 180, btnH = 30;
+    const btnW = 200, btnH = 30;
     const startX = 40, startY = h - 130;
 
     alive.forEach((creature, i) => {
       const by = startY + i * (btnH + 5);
-      const label = `${creature.nickname} Lv.${creature.level} HP:${creature.currentHp}/${creature.maxHp}`;
+      const species = getSpeciesById(creature.speciesId)!;
+      const typeLabel = species.type.toUpperCase();
+      const label = `[${typeLabel}] ${creature.nickname} Lv.${creature.level} HP:${creature.currentHp}/${creature.maxHp}`;
       const container = this.createButton(startX, by, btnW, btnH, label, () => {
         this.playerCreature = creature;
         this.clearButtons();
@@ -214,9 +217,16 @@ export class BattleScene extends Phaser.Scene {
         this.time.delayedCall(800, () => {
           const enemyMove = aiPickMove(this.wildCreature);
           const result = executeTurn(this.wildCreature, this.playerCreature, enemyMove);
-          this.showTurnResult(result, false);
+          this.showTurnResult(result, false, () => {
+            // After enemy attacks, check if player fainted
+            if (this.playerCreature.currentHp <= 0) {
+              this.onPlayerFainted();
+            } else {
+              this.showActionMenu();
+            }
+          });
         });
-      });
+      }, typeColor(species.type));
       this.moveButtons.push(container);
     });
 

@@ -94,6 +94,7 @@ export class StarterSelectScene extends Phaser.Scene {
       playerY: 300,
       wins: 0,
       caught: 1,
+      items: [],
       version: SAVE_VERSION,
     };
     saveGame(save);

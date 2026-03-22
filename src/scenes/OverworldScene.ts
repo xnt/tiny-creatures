@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { SaveData, CreatureInstance } from '../core/types';
+import { SaveData, CreatureInstance, ItemType, CreatureType } from '../core/types';
 import { saveGame } from '../core/saveManager';
 import { CREATURE_DEX } from '../data/creatures';
 import { createCreature } from '../core/creatureFactory';
@@ -20,6 +20,14 @@ const TERRAIN_COLORS: Record<Terrain, number> = {
   [Terrain.Tree]: 0x1b5e20,
 };
 
+/** Map item pickup */
+interface MapItem {
+  type: ItemType;
+  x: number;
+  y: number;
+  collected: boolean;
+}
+
 export class OverworldScene extends Phaser.Scene {
   private save!: SaveData;
   private player!: Phaser.GameObjects.Graphics;
@@ -31,6 +39,17 @@ export class OverworldScene extends Phaser.Scene {
   private encounterCooldown = 0;
   private partyText!: Phaser.GameObjects.Text;
   private statsText!: Phaser.GameObjects.Text;
+  private itemsText!: Phaser.GameObjects.Text;
+  private itemsPopup!: Phaser.GameObjects.Container;
+  private itemsPopupBg!: Phaser.GameObjects.Graphics;
+  private itemsPopupVisible = false;
+  private mainMenuPopup!: Phaser.GameObjects.Container;
+  private mainMenuVisible = false;
+
+  /** Items placed on the map */
+  private mapItems: MapItem[] = [];
+  /** Graphics for map items */
+  private mapItemGraphics: Phaser.GameObjects.Graphics[] = [];
 
   /** Virtual D-pad state for touch controls */
   private dpadDir: { x: number; y: number } = { x: 0, y: 0 };
@@ -46,6 +65,9 @@ export class OverworldScene extends Phaser.Scene {
   create(): void {
     this.generateMap();
     this.drawMap();
+
+    // Place map items (fishing rod)
+    this.placeMapItems();
 
     // Player character (simple triangle)
     this.player = this.add.graphics();
@@ -78,38 +100,28 @@ export class OverworldScene extends Phaser.Scene {
 
     this.updateHud();
 
-    // Party button
-    const partyBtn = this.add.text(this.cameras.main.width / 2 - 80, 6, '[ PARTY ]', {
-      fontSize: '13px', fontFamily: 'monospace', color: '#88ffaa',
-    }).setOrigin(0.5, 0).setInteractive({ useHandCursor: true });
-    partyBtn.on('pointerdown', () => {
-      this.persistSave();
-      this.scene.start('PartyScene', { save: this.save });
-    });
-
-    // Dex button
-    const dexBtn = this.add.text(this.cameras.main.width / 2, 6, '[ DEX ]', {
-      fontSize: '13px', fontFamily: 'monospace', color: '#ffcc66',
-    }).setOrigin(0.5, 0).setInteractive({ useHandCursor: true });
-    dexBtn.on('pointerdown', () => {
-      this.persistSave();
-      this.scene.start('CreatureDexScene', { save: this.save });
-    });
-
-    // Menu button
-    const menuBtn = this.add.text(this.cameras.main.width / 2 + 80, 6, '[ MENU ]', {
+    // Single Menu button (replaces multiple buttons for narrow screens)
+    const menuBtn = this.add.text(this.cameras.main.width / 2, 6, '[ MENU ]', {
       fontSize: '13px', fontFamily: 'monospace', color: '#aaaaff',
     }).setOrigin(0.5, 0).setInteractive({ useHandCursor: true });
     menuBtn.on('pointerdown', () => {
-      this.persistSave();
-      this.scene.start('SettingsScene');
+      this.toggleMainMenu();
     });
+
+    // Create items popup (hidden by default)
+    this.createItemsPopup();
+
+    // Create main menu popup (hidden by default)
+    this.createMainMenuPopup();
 
     // Virtual D-pad (touch / mobile)
     this.createDpad();
   }
 
   update(_time: number, delta: number): void {
+    // Close popup if clicking outside
+    if (this.itemsPopupVisible || this.mainMenuVisible) return; // Pause game while popup is open
+
     // Movement
     this.playerVelX = 0;
     this.playerVelY = 0;
@@ -141,6 +153,9 @@ export class OverworldScene extends Phaser.Scene {
         this.player.setPosition(nx, ny);
       }
     }
+
+    // Check for item pickups
+    this.checkItemPickups();
 
     // Encounter check
     if (this.encounterCooldown > 0) {
@@ -394,7 +409,7 @@ export class OverworldScene extends Phaser.Scene {
     makeDpadBtn(offset, 0, 1, 0, '\u25B6');          // Right
   }
 
-  private triggerEncounter(): void {
+  private triggerEncounter(waterEncounter = false): void {
     this.encounterCooldown = 2000; // prevent instant re-encounter
 
     // Determine average party level for scaling
@@ -402,8 +417,17 @@ export class OverworldScene extends Phaser.Scene {
       this.save.party.reduce((sum, c) => sum + c.level, 0) / this.save.party.length
     ));
 
-    // Pick random species
-    const species = CREATURE_DEX[Math.floor(Math.random() * CREATURE_DEX.length)];
+    // Pick random species - exclude water creatures from tall grass
+    let availableSpecies = CREATURE_DEX;
+    if (!waterEncounter) {
+      // In tall grass, exclude water-type creatures
+      availableSpecies = CREATURE_DEX.filter(s => s.type !== CreatureType.Water);
+    } else {
+      // Fishing encounters are water-type only
+      availableSpecies = CREATURE_DEX.filter(s => s.type === CreatureType.Water);
+    }
+
+    const species = availableSpecies[Math.floor(Math.random() * availableSpecies.length)];
 
     // Wild creature level: avgLevel ± 2, but when the player only has
     // a single creature the wild level is always strictly lower.
@@ -440,6 +464,404 @@ export class OverworldScene extends Phaser.Scene {
       );
     }
     this.statsText.setText(`Wins:${this.save.wins} Caught:${this.save.caught}`);
+  }
+
+  // ─── Map Items ─────────────────────────────────────────────
+
+  private placeMapItems(): void {
+    // Find a random accessible grass tile for the fishing rod
+    // Try to find a spot not too close to the starting position
+    const grassTiles: { x: number; y: number }[] = [];
+
+    for (let y = 1; y < MAP_H - 1; y++) {
+      for (let x = 1; x < MAP_W - 1; x++) {
+        if (this.map[y][x] === Terrain.Grass || this.map[y][x] === Terrain.Path) {
+          // Check if it's not too close to start (400, 300)
+          const worldX = x * TILE + TILE / 2;
+          const worldY = y * TILE + TILE / 2;
+          const dist = Math.sqrt((worldX - 400) ** 2 + (worldY - 300) ** 2);
+          if (dist > 150) { // At least 150 pixels from start
+            grassTiles.push({ x: worldX, y: worldY });
+          }
+        }
+      }
+    }
+
+    if (grassTiles.length > 0 && !this.save.items.includes(ItemType.FishingRod)) {
+      const spot = grassTiles[Math.floor(Math.random() * grassTiles.length)];
+      this.mapItems.push({
+        type: ItemType.FishingRod,
+        x: spot.x,
+        y: spot.y,
+        collected: false,
+      });
+      this.drawMapItems();
+    }
+  }
+
+  private drawMapItems(): void {
+    // Clear existing graphics
+    this.mapItemGraphics.forEach(g => g.destroy());
+    this.mapItemGraphics = [];
+
+    for (const item of this.mapItems) {
+      if (item.collected) continue;
+
+      const g = this.add.graphics();
+
+      if (item.type === ItemType.FishingRod) {
+        // Draw a fishing rod icon
+        g.fillStyle(0x8b4513, 1); // Brown rod
+        g.fillRect(item.x - 2, item.y - 12, 4, 20);
+        g.fillStyle(0x888888, 1); // Gray reel
+        g.fillCircle(item.x, item.y - 8, 4);
+        g.lineStyle(2, 0xcccccc, 1); // Line
+        g.beginPath();
+        g.moveTo(item.x, item.y - 4);
+        g.lineTo(item.x + 8, item.y + 4);
+        g.strokePath();
+        // Sparkle effect (simple diamond shape)
+        g.fillStyle(0xffff00, 0.8);
+        g.fillTriangle(item.x, item.y - 20, item.x - 4, item.y - 16, item.x + 4, item.y - 16);
+        g.fillTriangle(item.x, item.y - 12, item.x - 4, item.y - 16, item.x + 4, item.y - 16);
+      }
+
+      this.mapItemGraphics.push(g);
+    }
+  }
+
+  private checkItemPickups(): void {
+    for (const item of this.mapItems) {
+      if (item.collected) continue;
+
+      const dist = Math.sqrt((this.player.x - item.x) ** 2 + (this.player.y - item.y) ** 2);
+      if (dist < 25) {
+        item.collected = true;
+        this.save.items.push(item.type);
+        saveGame(this.save);
+
+        // Remove graphic
+        this.mapItemGraphics.forEach(g => g.destroy());
+        this.mapItemGraphics = [];
+        this.drawMapItems();
+
+        // Show pickup message briefly
+        const msg = this.add.text(this.cameras.main.width / 2, 60,
+          `Found ${item.type === ItemType.FishingRod ? 'Fishing Rod' : item.type}!`, {
+          fontSize: '16px', fontFamily: 'monospace', color: '#ffff00', fontStyle: 'bold',
+          backgroundColor: '#000000aa', padding: { x: 10, y: 5 },
+        }).setOrigin(0.5).setDepth(100);
+
+        this.time.delayedCall(2000, () => msg.destroy());
+      }
+    }
+  }
+
+  // ─── Items Popup ───────────────────────────────────────────
+
+  private createItemsPopup(): void {
+    const w = this.cameras.main.width;
+    const h = this.cameras.main.height;
+
+    this.itemsPopup = this.add.container(0, 0);
+    this.itemsPopup.setDepth(200);
+
+    // Background overlay
+    this.itemsPopupBg = this.add.graphics();
+    this.itemsPopupBg.fillStyle(0x000000, 0.7);
+    this.itemsPopupBg.fillRect(0, 0, w, h);
+    this.itemsPopup.add(this.itemsPopupBg);
+
+    // Close on background click
+    this.itemsPopupBg.setInteractive(new Phaser.Geom.Rectangle(0, 0, w, h), Phaser.Geom.Rectangle.Contains);
+    this.itemsPopupBg.on('pointerdown', () => this.toggleItemsPopup());
+
+    // Popup panel
+    const panelW = 280;
+    const panelH = 200;
+    const panelX = (w - panelW) / 2;
+    const panelY = (h - panelH) / 2;
+
+    const panel = this.add.graphics();
+    panel.fillStyle(0x222244, 1);
+    panel.fillRoundedRect(panelX, panelY, panelW, panelH, 10);
+    panel.lineStyle(2, 0x6688cc, 1);
+    panel.strokeRoundedRect(panelX, panelY, panelW, panelH, 10);
+    this.itemsPopup.add(panel);
+
+    // Title
+    const title = this.add.text(w / 2, panelY + 20, '🎒 ITEMS', {
+      fontSize: '18px', fontFamily: 'monospace', color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5);
+    this.itemsPopup.add(title);
+
+    // Items list will be populated in toggleItemsPopup
+    this.itemsPopup.setVisible(false);
+  }
+
+  private toggleItemsPopup(): void {
+    this.itemsPopupVisible = !this.itemsPopupVisible;
+
+    if (this.itemsPopupVisible) {
+      this.itemsPopup.removeAll(true);
+      this.rebuildItemsPopup();
+      this.itemsPopup.setVisible(true);
+    } else {
+      this.itemsPopup.setVisible(false);
+    }
+  }
+
+  private rebuildItemsPopup(): void {
+    const w = this.cameras.main.width;
+    const h = this.cameras.main.height;
+
+    // Background overlay
+    const bg = this.add.graphics();
+    bg.fillStyle(0x000000, 0.7);
+    bg.fillRect(0, 0, w, h);
+    bg.setInteractive(new Phaser.Geom.Rectangle(0, 0, w, h), Phaser.Geom.Rectangle.Contains);
+    bg.on('pointerdown', () => this.toggleItemsPopup());
+    this.itemsPopup.add(bg);
+
+    // Popup panel
+    const panelW = 280;
+    const panelH = 220;
+    const panelX = (w - panelW) / 2;
+    const panelY = (h - panelH) / 2;
+
+    const panel = this.add.graphics();
+    panel.fillStyle(0x222244, 1);
+    panel.fillRoundedRect(panelX, panelY, panelW, panelH, 10);
+    panel.lineStyle(2, 0x6688cc, 1);
+    panel.strokeRoundedRect(panelX, panelY, panelW, panelH, 10);
+    this.itemsPopup.add(panel);
+
+    // Title
+    const title = this.add.text(w / 2, panelY + 20, '🎒 ITEMS', {
+      fontSize: '18px', fontFamily: 'monospace', color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5);
+    this.itemsPopup.add(title);
+
+    // Items list
+    if (this.save.items.length === 0) {
+      const emptyText = this.add.text(w / 2, panelY + 80, 'No items yet!\nExplore to find items.', {
+        fontSize: '14px', fontFamily: 'monospace', color: '#888888', align: 'center',
+      }).setOrigin(0.5);
+      this.itemsPopup.add(emptyText);
+    } else {
+      let itemY = panelY + 50;
+
+      for (const itemType of this.save.items) {
+        const itemName = itemType === ItemType.FishingRod ? '🎣 Fishing Rod' : itemType;
+        const itemDesc = itemType === ItemType.FishingRod ? 'Use near water to fish' : '';
+
+        // Item button
+        const btnW = 240;
+        const btnH = 45;
+        const btnX = (w - btnW) / 2;
+        const currentBtnY = itemY; // Capture Y position for this button
+
+        const btn = this.add.graphics();
+        btn.fillStyle(0x335566, 1);
+        btn.fillRoundedRect(btnX, currentBtnY, btnW, btnH, 6);
+        btn.lineStyle(1, 0x66aacc, 1);
+        btn.strokeRoundedRect(btnX, currentBtnY, btnW, btnH, 6);
+        this.itemsPopup.add(btn);
+
+        const itemLabel = this.add.text(btnX + 10, currentBtnY + 8, itemName, {
+          fontSize: '14px', fontFamily: 'monospace', color: '#ffffff', fontStyle: 'bold',
+        });
+        this.itemsPopup.add(itemLabel);
+
+        const descLabel = this.add.text(btnX + 10, currentBtnY + 26, itemDesc, {
+          fontSize: '10px', fontFamily: 'monospace', color: '#88aacc',
+        });
+        this.itemsPopup.add(descLabel);
+
+        // Interactive zone
+        const zone = this.add.zone(btnX + btnW / 2, currentBtnY + btnH / 2, btnW, btnH)
+          .setInteractive({ useHandCursor: true });
+        zone.on('pointerover', () => {
+          btn.clear();
+          btn.fillStyle(0x446688, 1);
+          btn.fillRoundedRect(btnX, currentBtnY, btnW, btnH, 6);
+          btn.lineStyle(2, 0x88ccff, 1);
+          btn.strokeRoundedRect(btnX, currentBtnY, btnW, btnH, 6);
+        });
+        zone.on('pointerout', () => {
+          btn.clear();
+          btn.fillStyle(0x335566, 1);
+          btn.fillRoundedRect(btnX, currentBtnY, btnW, btnH, 6);
+          btn.lineStyle(1, 0x66aacc, 1);
+          btn.strokeRoundedRect(btnX, currentBtnY, btnW, btnH, 6);
+        });
+        zone.on('pointerdown', () => {
+          this.useItem(itemType);
+        });
+        this.itemsPopup.add(zone);
+
+        itemY += btnH + 8;
+      }
+    }
+
+    // Close button
+    const closeBtn = this.add.text(w / 2, panelY + panelH - 25, '[ CLOSE ]', {
+      fontSize: '14px', fontFamily: 'monospace', color: '#aaaaff',
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    closeBtn.on('pointerdown', () => this.toggleItemsPopup());
+    this.itemsPopup.add(closeBtn);
+  }
+
+  private useItem(itemType: ItemType): void {
+    if (itemType === ItemType.FishingRod) {
+      // Check if near water
+      const nearWater = this.isNearWater();
+
+      if (nearWater) {
+        this.toggleItemsPopup(); // Close popup
+        this.triggerEncounter(true); // Water encounter
+      } else {
+        // Show message that you need to be near water
+        const msg = this.add.text(this.cameras.main.width / 2, 80,
+          'You need to be near water to fish!', {
+          fontSize: '14px', fontFamily: 'monospace', color: '#ff6666',
+          backgroundColor: '#000000aa', padding: { x: 10, y: 5 },
+        }).setOrigin(0.5).setDepth(300);
+
+        this.time.delayedCall(1500, () => msg.destroy());
+      }
+    }
+  }
+
+  private isNearWater(): boolean {
+    const playerTileX = Math.floor(this.player.x / TILE);
+    const playerTileY = Math.floor(this.player.y / TILE);
+
+    // Check adjacent tiles for water
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const tx = playerTileX + dx;
+        const ty = playerTileY + dy;
+        if (ty >= 0 && ty < MAP_H && tx >= 0 && tx < MAP_W) {
+          if (this.map[ty][tx] === Terrain.Water) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  // ─── Main Menu Popup ───────────────────────────────────────
+
+  private createMainMenuPopup(): void {
+    const w = this.cameras.main.width;
+    const h = this.cameras.main.height;
+
+    this.mainMenuPopup = this.add.container(0, 0);
+    this.mainMenuPopup.setDepth(250);
+    this.mainMenuPopup.setVisible(false);
+  }
+
+  private toggleMainMenu(): void {
+    this.mainMenuVisible = !this.mainMenuVisible;
+
+    if (this.mainMenuVisible) {
+      this.mainMenuPopup.removeAll(true);
+      this.rebuildMainMenuPopup();
+      this.mainMenuPopup.setVisible(true);
+    } else {
+      this.mainMenuPopup.setVisible(false);
+    }
+  }
+
+  private rebuildMainMenuPopup(): void {
+    const w = this.cameras.main.width;
+    const h = this.cameras.main.height;
+
+    // Background overlay
+    const bg = this.add.graphics();
+    bg.fillStyle(0x000000, 0.7);
+    bg.fillRect(0, 0, w, h);
+    bg.setInteractive(new Phaser.Geom.Rectangle(0, 0, w, h), Phaser.Geom.Rectangle.Contains);
+    bg.on('pointerdown', () => this.toggleMainMenu());
+    this.mainMenuPopup.add(bg);
+
+    // Popup panel
+    const panelW = 260;
+    const panelH = 260;
+    const panelX = (w - panelW) / 2;
+    const panelY = (h - panelH) / 2;
+
+    const panel = this.add.graphics();
+    panel.fillStyle(0x222244, 1);
+    panel.fillRoundedRect(panelX, panelY, panelW, panelH, 10);
+    panel.lineStyle(2, 0x6688cc, 1);
+    panel.strokeRoundedRect(panelX, panelY, panelW, panelH, 10);
+    this.mainMenuPopup.add(panel);
+
+    // Title
+    const title = this.add.text(w / 2, panelY + 20, '📋 MENU', {
+      fontSize: '18px', fontFamily: 'monospace', color: '#ffffff', fontStyle: 'bold',
+    }).setOrigin(0.5);
+    this.mainMenuPopup.add(title);
+
+    // Menu options
+    const menuOptions = [
+      { label: '🐾 Party', color: 0x336644, callback: () => { this.toggleMainMenu(); this.persistSave(); this.scene.start('PartyScene', { save: this.save }); } },
+      { label: '📖 Dex', color: 0x664433, callback: () => { this.toggleMainMenu(); this.persistSave(); this.scene.start('CreatureDexScene', { save: this.save }); } },
+      { label: '🎒 Items', color: 0x335566, callback: () => { this.toggleMainMenu(); this.toggleItemsPopup(); } },
+      { label: '⚙ Settings', color: 0x444466, callback: () => { this.toggleMainMenu(); this.persistSave(); this.scene.start('SettingsScene'); } },
+    ];
+
+    let optionY = panelY + 55;
+    const btnW = 200;
+    const btnH = 40;
+
+    for (const option of menuOptions) {
+      const btnX = (w - btnW) / 2;
+      const currentBtnY = optionY; // Capture Y position for this button
+
+      const btn = this.add.graphics();
+      btn.fillStyle(option.color, 1);
+      btn.fillRoundedRect(btnX, currentBtnY, btnW, btnH, 6);
+      btn.lineStyle(1, 0x88aacc, 1);
+      btn.strokeRoundedRect(btnX, currentBtnY, btnW, btnH, 6);
+      this.mainMenuPopup.add(btn);
+
+      const label = this.add.text(w / 2, currentBtnY + btnH / 2, option.label, {
+        fontSize: '15px', fontFamily: 'monospace', color: '#ffffff', fontStyle: 'bold',
+      }).setOrigin(0.5);
+      this.mainMenuPopup.add(label);
+
+      const zone = this.add.zone(btnX + btnW / 2, currentBtnY + btnH / 2, btnW, btnH)
+        .setInteractive({ useHandCursor: true });
+      zone.on('pointerover', () => {
+        btn.clear();
+        btn.fillStyle(option.color, 0.8);
+        btn.fillRoundedRect(btnX, currentBtnY, btnW, btnH, 6);
+        btn.lineStyle(2, 0xaaccff, 1);
+        btn.strokeRoundedRect(btnX, currentBtnY, btnW, btnH, 6);
+      });
+      zone.on('pointerout', () => {
+        btn.clear();
+        btn.fillStyle(option.color, 1);
+        btn.fillRoundedRect(btnX, currentBtnY, btnW, btnH, 6);
+        btn.lineStyle(1, 0x88aacc, 1);
+        btn.strokeRoundedRect(btnX, currentBtnY, btnW, btnH, 6);
+      });
+      zone.on('pointerdown', option.callback);
+      this.mainMenuPopup.add(zone);
+
+      optionY += btnH + 8;
+    }
+
+    // Close button
+    const closeBtn = this.add.text(w / 2, panelY + panelH - 25, '[ CLOSE ]', {
+      fontSize: '14px', fontFamily: 'monospace', color: '#aaaaff',
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    closeBtn.on('pointerdown', () => this.toggleMainMenu());
+    this.mainMenuPopup.add(closeBtn);
   }
 
   private persistSave(): void {

@@ -131,6 +131,9 @@ export function typeColor(type: string): number {
     case 'water': return 0x3399ff;
     case 'grass': return 0x44cc44;
     case 'normal': return 0xcccccc;
+    case 'dark': return 0x4a1a6a;
+    case 'psychic': return 0xff66cc;
+    case 'fighting': return 0xcc3322;
     default: return 0xffffff;
   }
 }
@@ -142,6 +145,9 @@ export function typeColorStr(type: string): string {
     case 'water': return '#3399ff';
     case 'grass': return '#44cc44';
     case 'normal': return '#cccccc';
+    case 'dark': return '#4a1a6a';
+    case 'psychic': return '#ff66cc';
+    case 'fighting': return '#cc3322';
     default: return '#ffffff';
   }
 }
