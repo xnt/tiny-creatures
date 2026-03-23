@@ -142,7 +142,3 @@ Open **⚙ Settings** from the title screen or the in-game menu bar. The **Fresh
 - **[TypeScript](https://www.typescriptlang.org/)** — type-safe game logic
 - **[Vite](https://vitejs.dev/)** — dev server & bundler
 - **[Vitest](https://vitest.dev/)** — unit tests (`npm test`; 12 test files in `src/`)
-
-## License
-
-ISC
