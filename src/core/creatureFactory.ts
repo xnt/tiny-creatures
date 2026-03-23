@@ -1,21 +1,76 @@
 import { CreatureInstance, CreatureSpecies, Attack, BaseStats } from './types';
 import { getSpeciesById } from '../data/creatures';
+import { RandomSource, defaultRandom } from './random';
 
 let uidCounter = Date.now();
 
-function nextUid(): string {
-  return `c_${uidCounter++}_${Math.random().toString(36).slice(2, 8)}`;
+/**
+ * CreatureFactory handles creature creation with injectable randomness.
+ */
+export class CreatureFactory {
+  constructor(private random: RandomSource = defaultRandom) {}
+
+  /** Generate a unique ID for a creature */
+  nextUid(): string {
+    const randPart = this.random.random().toString(36).slice(2, 8);
+    return `c_${uidCounter++}_${randPart}`;
+  }
+
+  /** Generate random IVs (0-15 for each stat) */
+  randomIVs(): BaseStats {
+    return {
+      hp: this.random.randomInt(0, 16),
+      attack: this.random.randomInt(0, 16),
+      defense: this.random.randomInt(0, 16),
+      speed: this.random.randomInt(0, 16),
+    };
+  }
+
+  /** Pick N random attacks from the species' learnable pool */
+  pickRandomMoves(species: CreatureSpecies, count: number = 4): Attack[] {
+    const pool = [...species.learnableAttacks];
+    const chosen: Attack[] = [];
+    const n = Math.min(count, pool.length);
+    for (let i = 0; i < n; i++) {
+      const idx = this.random.randomInt(0, pool.length);
+      chosen.push(pool.splice(idx, 1)[0]);
+    }
+    return chosen;
+  }
+
+  /** Create a new creature instance from a species at a given level */
+  createCreature(speciesId: string, level: number, nickname?: string): CreatureInstance {
+    const species = getSpeciesById(speciesId);
+    if (!species) throw new Error(`Unknown species: ${speciesId}`);
+
+    const ivs = this.randomIVs();
+    const hp = calcStat(species.baseStats.hp, ivs.hp, level, true);
+
+    return {
+      uid: this.nextUid(),
+      speciesId,
+      nickname: nickname ?? species.name,
+      level,
+      xp: xpForLevel(level),
+      currentHp: hp,
+      maxHp: hp,
+      attack: calcStat(species.baseStats.attack, ivs.attack, level, false),
+      defense: calcStat(species.baseStats.defense, ivs.defense, level, false),
+      speed: calcStat(species.baseStats.speed, ivs.speed, level, false),
+      moves: this.pickRandomMoves(species),
+      ivs,
+    };
+  }
 }
 
-/** Generate random IVs (0-15 for each stat) */
-export function randomIVs(): BaseStats {
-  return {
-    hp: Math.floor(Math.random() * 16),
-    attack: Math.floor(Math.random() * 16),
-    defense: Math.floor(Math.random() * 16),
-    speed: Math.floor(Math.random() * 16),
-  };
-}
+// Default instance for convenience
+const defaultFactory = new CreatureFactory();
+
+// Export standalone functions that use the default factory (for backwards compatibility)
+export const nextUid = () => defaultFactory.nextUid();
+export const randomIVs = defaultFactory.randomIVs.bind(defaultFactory);
+export const pickRandomMoves = defaultFactory.pickRandomMoves.bind(defaultFactory);
+export const createCreature = defaultFactory.createCreature.bind(defaultFactory);
 
 /** Calculate a stat value from base + IV + level */
 export function calcStat(base: number, iv: number, level: number, isHp: boolean): number {
@@ -26,18 +81,6 @@ export function calcStat(base: number, iv: number, level: number, isHp: boolean)
   return Math.floor(((2 * base + iv) * level) / 100) + 5;
 }
 
-/** Pick N random attacks from the species' learnable pool */
-export function pickRandomMoves(species: CreatureSpecies, count: number = 4): Attack[] {
-  const pool = [...species.learnableAttacks];
-  const chosen: Attack[] = [];
-  const n = Math.min(count, pool.length);
-  for (let i = 0; i < n; i++) {
-    const idx = Math.floor(Math.random() * pool.length);
-    chosen.push(pool.splice(idx, 1)[0]);
-  }
-  return chosen;
-}
-
 /** XP needed to reach a given level */
 export function xpForLevel(level: number): number {
   return Math.floor(level * level * level * 0.8);
@@ -46,30 +89,6 @@ export function xpForLevel(level: number): number {
 /** XP gained from defeating a creature */
 export function xpFromBattle(defeatedLevel: number): number {
   return Math.floor(defeatedLevel * 12 + 20);
-}
-
-/** Create a new creature instance from a species at a given level */
-export function createCreature(speciesId: string, level: number, nickname?: string): CreatureInstance {
-  const species = getSpeciesById(speciesId);
-  if (!species) throw new Error(`Unknown species: ${speciesId}`);
-
-  const ivs = randomIVs();
-  const hp = calcStat(species.baseStats.hp, ivs.hp, level, true);
-
-  return {
-    uid: nextUid(),
-    speciesId,
-    nickname: nickname ?? species.name,
-    level,
-    xp: xpForLevel(level),
-    currentHp: hp,
-    maxHp: hp,
-    attack: calcStat(species.baseStats.attack, ivs.attack, level, false),
-    defense: calcStat(species.baseStats.defense, ivs.defense, level, false),
-    speed: calcStat(species.baseStats.speed, ivs.speed, level, false),
-    moves: pickRandomMoves(species),
-    ivs,
-  };
 }
 
 /** Recalculate stats after leveling up */

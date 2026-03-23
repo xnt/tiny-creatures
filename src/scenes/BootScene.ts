@@ -1,7 +1,12 @@
 import Phaser from 'phaser';
 import { loadGame, hasSave } from '../core/saveManager';
+import { RandomSource, defaultRandom } from '../core/random';
+
+const COLORS = [0xff5533, 0x3399ff, 0x44cc44, 0xcccccc];
 
 export class BootScene extends Phaser.Scene {
+  private random: RandomSource = defaultRandom;
+
   constructor() {
     super({ key: 'BootScene' });
   }
@@ -32,10 +37,11 @@ export class BootScene extends Phaser.Scene {
     // Decorative creatures (little dots)
     for (let i = 0; i < 30; i++) {
       const dot = this.add.graphics();
-      const dx = Math.random() * w;
-      const dy = Math.random() * h;
-      dot.fillStyle([0xff5533, 0x3399ff, 0x44cc44, 0xcccccc][Math.floor(Math.random() * 4)], 0.4);
-      dot.fillCircle(dx, dy, 2 + Math.random() * 4);
+      const dx = this.random.random() * w;
+      const dy = this.random.random() * h;
+      const color = this.random.randomElement(COLORS)!;
+      dot.fillStyle(color, 0.4);
+      dot.fillCircle(dx, dy, 2 + this.random.random() * 4);
     }
 
     const btnY = h * 0.55;

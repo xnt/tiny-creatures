@@ -2,17 +2,15 @@ import Phaser from 'phaser';
 import { SaveData, CreatureInstance, Attack } from '../core/types';
 import { getSpeciesById } from '../data/creatures';
 import { drawCreature, typeColor } from '../utils/creatureRenderer';
-import { executeTurn, aiPickMove, attemptCatch, awardXp, getTurnOrder, BattleTurnResult } from '../core/battleEngine';
 import { saveGame } from '../core/saveManager';
 import { xpForLevel } from '../core/creatureFactory';
-
-type BattleState = 'choosing' | 'animating' | 'result' | 'catch_anim' | 'ended';
+import { BattleTurnResult, CatchAttemptResult, PlannedTurn } from '../core/battleEngine';
+import { BattleStateMachine, BattlePhase, BattleActionResult, PlannedTurnInfo } from './systems';
 
 export class BattleScene extends Phaser.Scene {
   private save!: SaveData;
-  private playerCreature!: CreatureInstance;
   private wildCreature!: CreatureInstance;
-  private state: BattleState = 'choosing';
+  private stateMachine!: BattleStateMachine;
 
   // Graphics handles
   private playerGfx!: Phaser.GameObjects.Graphics;
@@ -32,13 +30,19 @@ export class BattleScene extends Phaser.Scene {
   init(data: { save: SaveData; wildCreature: CreatureInstance }): void {
     this.save = data.save;
     this.wildCreature = data.wildCreature;
-    // First party member with HP > 0
-    this.playerCreature = this.save.party.find(c => c.currentHp > 0) ?? this.save.party[0];
   }
 
   create(): void {
     const w = this.cameras.main.width;
     const h = this.cameras.main.height;
+
+    // Initialize state machine
+    const playerCreature = this.save.party.find(c => c.currentHp > 0) ?? this.save.party[0];
+    this.stateMachine = new BattleStateMachine(
+      this.save,
+      playerCreature,
+      this.wildCreature,
+    );
 
     // Background
     const bg = this.add.graphics();
@@ -51,11 +55,7 @@ export class BattleScene extends Phaser.Scene {
     bg.fillEllipse(w * 0.75, h * 0.32, 180, 35);
 
     // Draw creatures
-    const playerSpecies = getSpeciesById(this.playerCreature.speciesId)!;
-    const wildSpecies = getSpeciesById(this.wildCreature.speciesId)!;
-
-    this.playerGfx = drawCreature(this, w * 0.25, h * 0.42, playerSpecies.shape, false);
-    this.wildGfx = drawCreature(this, w * 0.75, h * 0.22, wildSpecies.shape, true);
+    this.drawCreatures(w, h);
 
     // Info boxes
     this.drawInfoBoxes(w, h);
@@ -72,15 +72,23 @@ export class BattleScene extends Phaser.Scene {
       wordWrap: { width: w - 80 },
     });
 
-    this.state = 'choosing';
-
     // Initial display
     this.time.delayedCall(800, () => {
       this.showActionMenu();
     });
   }
 
+  private drawCreatures(w: number, h: number): void {
+    const playerSpecies = getSpeciesById(this.stateMachine.getPlayerCreature().speciesId)!;
+    const wildSpecies = getSpeciesById(this.wildCreature.speciesId)!;
+
+    this.playerGfx = drawCreature(this, w * 0.25, h * 0.42, playerSpecies.shape, false);
+    this.wildGfx = drawCreature(this, w * 0.75, h * 0.22, wildSpecies.shape, true);
+  }
+
   private drawInfoBoxes(w: number, h: number): void {
+    const playerCreature = this.stateMachine.getPlayerCreature();
+
     // Player info (bottom-left area)
     const pBoxX = 20, pBoxY = h * 0.58;
     const pBg = this.add.graphics();
@@ -88,16 +96,16 @@ export class BattleScene extends Phaser.Scene {
     pBg.fillRoundedRect(pBoxX, pBoxY, 220, 55, 6);
 
     this.playerInfoText = this.add.text(pBoxX + 10, pBoxY + 5,
-      `${this.playerCreature.nickname}  Lv.${this.playerCreature.level}`, {
+      `${playerCreature.nickname}  Lv.${playerCreature.level}`, {
       fontSize: '13px', fontFamily: 'monospace', color: '#ffffff', fontStyle: 'bold',
     });
 
     this.playerHpBar = this.add.graphics();
-    this.drawHpBar(this.playerHpBar, pBoxX + 10, pBoxY + 25, 200, this.playerCreature.currentHp, this.playerCreature.maxHp);
+    this.drawHpBar(this.playerHpBar, pBoxX + 10, pBoxY + 25, 200, playerCreature.currentHp, playerCreature.maxHp);
 
-    const xpNeeded = xpForLevel(this.playerCreature.level + 1);
-    const xpCurrent = this.playerCreature.xp - xpForLevel(this.playerCreature.level);
-    const xpTotal = xpNeeded - xpForLevel(this.playerCreature.level);
+    const xpNeeded = xpForLevel(playerCreature.level + 1);
+    const xpCurrent = playerCreature.xp - xpForLevel(playerCreature.level);
+    const xpTotal = xpNeeded - xpForLevel(playerCreature.level);
     this.add.text(pBoxX + 10, pBoxY + 40, `XP: ${xpCurrent}/${xpTotal}`, {
       fontSize: '10px', fontFamily: 'monospace', color: '#aaaacc',
     });
@@ -128,13 +136,12 @@ export class BattleScene extends Phaser.Scene {
     // Fill
     g.fillStyle(color, 1);
     g.fillRoundedRect(x, y, Math.max(0, width * ratio), 10, 3);
-    // HP text
   }
+
+  // ─── Action Menus ────────────────────────────────────────────
 
   private showActionMenu(): void {
     this.clearButtons();
-    this.state = 'choosing';
-
     const w = this.cameras.main.width;
     const h = this.cameras.main.height;
     const btnW = 150, btnH = 35;
@@ -144,9 +151,9 @@ export class BattleScene extends Phaser.Scene {
 
     const actions = [
       { label: '⚔ Fight', callback: () => this.showMoveMenu() },
-      { label: '🎯 Catch', callback: () => this.doCatch() },
+      { label: '🎯 Catch', callback: () => this.handleCatch() },
       { label: '🔄 Switch', callback: () => this.showSwitchMenu() },
-      { label: '🏃 Run', callback: () => this.doRun() },
+      { label: '🏃 Run', callback: () => this.handleRun() },
     ];
 
     actions.forEach((action, i) => {
@@ -166,14 +173,15 @@ export class BattleScene extends Phaser.Scene {
     const btnW = 160, btnH = 35;
     const startX = 40, startY = h - 125;
 
-    this.playerCreature.moves.forEach((move, i) => {
+    const playerCreature = this.stateMachine.getPlayerCreature();
+    playerCreature.moves.forEach((move, i) => {
       if (!move) return;
       const bx = startX + (i % 2) * (btnW + 10);
       const by = startY + Math.floor(i / 2) * (btnH + 6);
 
       const label = `${move.name} (${move.power})`;
       const container = this.createButton(bx, by, btnW, btnH, label, () => {
-        this.executePlayerTurn(move);
+        this.handleAttack(move);
       }, typeColor(move.type));
       this.moveButtons.push(container);
     });
@@ -185,12 +193,11 @@ export class BattleScene extends Phaser.Scene {
     this.moveButtons.push(backBtn);
   }
 
-  private showSwitchMenu(): void {
+  private showSwitchMenu(forcedSwitch: boolean = false): void {
     this.clearButtons();
-    this.state = 'choosing';
-    const alive = this.save.party.filter(c => c.currentHp > 0 && c.uid !== this.playerCreature.uid);
+    const available = this.stateMachine.getAvailableSwitchTargets();
 
-    if (alive.length === 0) {
+    if (available.length === 0) {
       this.messageText.setText('No other creatures available!');
       this.time.delayedCall(1000, () => this.showActionMenu());
       return;
@@ -202,114 +209,168 @@ export class BattleScene extends Phaser.Scene {
     const btnW = 200, btnH = 30;
     const startX = 40, startY = h - 130;
 
-    alive.forEach((creature, i) => {
+    available.forEach((creature, i) => {
       const by = startY + i * (btnH + 5);
       const species = getSpeciesById(creature.speciesId)!;
       const typeLabel = species.type.toUpperCase();
       const label = `[${typeLabel}] ${creature.nickname} Lv.${creature.level} HP:${creature.currentHp}/${creature.maxHp}`;
       const container = this.createButton(startX, by, btnW, btnH, label, () => {
-        this.playerCreature = creature;
-        this.clearButtons();
-        this.refreshCreatureGraphics();
-        this.messageText.setText(`Go, ${creature.nickname}!`);
-
-        // Enemy gets a free attack
-        this.time.delayedCall(800, () => {
-          const enemyMove = aiPickMove(this.wildCreature);
-          const result = executeTurn(this.wildCreature, this.playerCreature, enemyMove);
-          this.showTurnResult(result, false, () => {
-            // After enemy attacks, check if player fainted
-            if (this.playerCreature.currentHp <= 0) {
-              this.onPlayerFainted();
-            } else {
-              this.showActionMenu();
-            }
-          });
-        });
+        if (forcedSwitch) {
+          this.handleForcedSwitch(creature);
+        } else {
+          this.handleSwitch(creature);
+        }
       }, typeColor(species.type));
       this.moveButtons.push(container);
     });
 
-    const backBtn = this.createButton(startX + btnW + 15, startY, 80, btnH, '← Back', () => {
-      this.showActionMenu();
-    });
-    this.moveButtons.push(backBtn);
+    // Only show back button for voluntary switches
+    if (!forcedSwitch) {
+      const backBtn = this.createButton(startX + btnW + 15, startY, 80, btnH, '← Back', () => {
+        this.showActionMenu();
+      });
+      this.moveButtons.push(backBtn);
+    }
   }
 
-  private executePlayerTurn(move: Attack): void {
+  // ─── Action Handlers ─────────────────────────────────────────
+
+  private handleAttack(move: Attack): void {
     this.clearButtons();
-    this.state = 'animating';
+    const result = this.stateMachine.planAction({ type: 'attack', move });
+    this.processActionResult(result);
+  }
 
-    const order = getTurnOrder(this.playerCreature, this.wildCreature);
+  private handleCatch(): void {
+    this.clearButtons();
+    const result = this.stateMachine.planAction({ type: 'catch' });
+    this.processActionResult(result);
+  }
 
-    if (order[0] === 'a') {
-      // Player goes first
-      const result = executeTurn(this.playerCreature, this.wildCreature, move);
-      this.showTurnResult(result, true, () => {
-        if (this.wildCreature.currentHp <= 0) {
-          this.onWildFainted();
-          return;
-        }
-        // Enemy turn
-        const enemyMove = aiPickMove(this.wildCreature);
-        const enemyResult = executeTurn(this.wildCreature, this.playerCreature, enemyMove);
-        this.showTurnResult(enemyResult, false, () => {
-          if (this.playerCreature.currentHp <= 0) {
-            this.onPlayerFainted();
-            return;
-          }
-          this.showActionMenu();
+  private handleSwitch(creature: CreatureInstance): void {
+    this.clearButtons();
+    const result = this.stateMachine.planAction({ type: 'switch', creature });
+    
+    // Update graphics immediately to show the new creature being attacked
+    this.refreshCreatureGraphics();
+    
+    this.processActionResult(result);
+  }
+
+  private handleForcedSwitch(creature: CreatureInstance): void {
+    this.clearButtons();
+    // For forced switch after faint, just update the creature without enemy attack
+    this.stateMachine.switchToFaintedCreature(creature);
+    this.refreshCreatureGraphics();
+    this.messageText.setText(`Go, ${creature.nickname}!`);
+    this.time.delayedCall(800, () => {
+      this.showActionMenu();
+    });
+  }
+
+  private handleRun(): void {
+    this.clearButtons();
+    const result = this.stateMachine.planAction({ type: 'run' });
+    this.processActionResult(result);
+  }
+
+  // ─── Result Processing ───────────────────────────────────────
+
+  private processActionResult(result: BattleActionResult): void {
+    // Handle catch attempts - always play animation first
+    if (result.catchResult) {
+      this.playCatchAnimation(result.catchResult, result);
+      return;
+    }
+
+    if (result.battleEnded) {
+      this.messageText.setText(result.message);
+      if (result.victory) {
+        this.time.delayedCall(1500, () => {
+          this.handleBattleEnd(true, false);
         });
-      });
+      } else {
+        this.time.delayedCall(2000, () => {
+          this.handleBattleEnd(false, false);
+        });
+      }
+      return;
+    }
+
+    if (result.plannedTurns && result.plannedTurns.length > 0) {
+      // Play turns sequentially
+      this.playPlannedTurnSequence(result.plannedTurns, 0, result);
     } else {
-      // Enemy goes first
-      const enemyMove = aiPickMove(this.wildCreature);
-      const enemyResult = executeTurn(this.wildCreature, this.playerCreature, enemyMove);
-      this.showTurnResult(enemyResult, false, () => {
-        if (this.playerCreature.currentHp <= 0) {
-          this.onPlayerFainted();
-          return;
-        }
-        const result = executeTurn(this.playerCreature, this.wildCreature, move);
-        this.showTurnResult(result, true, () => {
-          if (this.wildCreature.currentHp <= 0) {
-            this.onWildFainted();
-            return;
-          }
-          this.showActionMenu();
-        });
+      // No turns to animate (e.g., successful escape)
+      this.messageText.setText(result.message);
+      this.time.delayedCall(800, () => {
+        this.afterTurnAnimations(result);
       });
     }
   }
 
-  private showTurnResult(result: BattleTurnResult, playerAttacked: boolean, onDone?: () => void): void {
+  private playPlannedTurnSequence(
+    plannedTurns: PlannedTurnInfo[], 
+    index: number, 
+    actionResult: BattleActionResult
+  ): void {
+    if (index >= plannedTurns.length) {
+      // All turns animated - check for end state
+      const finalResult = this.stateMachine.onTurnsComplete();
+      this.afterTurnAnimations(finalResult);
+      return;
+    }
+
+    const turnInfo = plannedTurns[index];
+    
+    // Play animation for this turn
+    this.playTurnAnimation(turnInfo.planned, turnInfo.isPlayerAttacker, () => {
+      // After animation, apply the damage
+      const result = this.stateMachine.applyTurnDamage(turnInfo.planned);
+      this.updateHpBars();
+
+      // Check for faints
+      const checkResult = this.stateMachine.checkTurnResult(result);
+      
+      if (checkResult.wildFainted || checkResult.playerFainted) {
+        // Someone fainted - don't continue with remaining turns
+        const finalResult = this.stateMachine.onTurnsComplete();
+        this.afterTurnAnimations(finalResult);
+        return;
+      }
+
+      // Continue to next turn
+      this.time.delayedCall(300, () => {
+        this.playPlannedTurnSequence(plannedTurns, index + 1, actionResult);
+      });
+    });
+  }
+
+  private playTurnAnimation(planned: PlannedTurn, isPlayerAttacker: boolean, onDone: () => void): void {
     let msg = '';
-    if (result.missed) {
-      msg = `${result.attackerName} used ${result.attack.name}... but missed!`;
+    if (planned.missed) {
+      msg = `${planned.attacker.nickname} used ${planned.attack.name}... but missed!`;
     } else {
-      msg = `${result.attackerName} used ${result.attack.name}! `;
-      if (result.effectiveness > 1) msg += "It's super effective! ";
-      else if (result.effectiveness < 1) msg += "It's not very effective... ";
-      msg += `${result.damage} damage!`;
+      msg = `${planned.attacker.nickname} used ${planned.attack.name}! `;
+      if (planned.effectiveness > 1) msg += "It's super effective! ";
+      else if (planned.effectiveness < 1) msg += "It's not very effective... ";
+      msg += `${planned.damage} damage!`;
     }
 
     this.messageText.setText(msg);
 
     // Animate attack
-    const target = playerAttacked ? this.wildGfx : this.playerGfx;
+    const target = isPlayerAttacker ? this.wildGfx : this.playerGfx;
     this.tweens.add({
       targets: target,
-      x: target.x + (playerAttacked ? 10 : -10),
+      x: target.x + (isPlayerAttacker ? 10 : -10),
       duration: 80,
       yoyo: true,
       repeat: 2,
     });
 
-    // Update HP bars
-    this.updateHpBars();
-
     // Flash on hit
-    if (!result.missed) {
+    if (!planned.missed) {
       this.tweens.add({
         targets: target,
         alpha: 0.3,
@@ -319,89 +380,11 @@ export class BattleScene extends Phaser.Scene {
       });
     }
 
-    if (onDone) {
-      this.time.delayedCall(1200, onDone);
-    }
+    // Call onDone after animation time
+    this.time.delayedCall(1200, onDone);
   }
 
-  private updateHpBars(): void {
-    const w = this.cameras.main.width;
-    const h = this.cameras.main.height;
-
-    this.drawHpBar(this.playerHpBar, 30, h * 0.58 + 25, 200, this.playerCreature.currentHp, this.playerCreature.maxHp);
-    this.drawHpBar(this.wildHpBar, w - 230, 45, 200, this.wildCreature.currentHp, this.wildCreature.maxHp);
-
-    this.playerInfoText.setText(`${this.playerCreature.nickname}  Lv.${this.playerCreature.level}`);
-    this.wildInfoText.setText(`${this.wildCreature.nickname}  Lv.${this.wildCreature.level}`);
-  }
-
-  private onWildFainted(): void {
-    this.state = 'ended';
-    this.messageText.setText(`${this.wildCreature.nickname} fainted!`);
-
-    // Fade out wild creature
-    this.tweens.add({
-      targets: this.wildGfx,
-      alpha: 0,
-      y: this.wildGfx.y + 30,
-      duration: 600,
-    });
-
-    // Award XP
-    const levels = awardXp(this.playerCreature, this.wildCreature.level);
-    this.save.wins++;
-    saveGame(this.save);
-
-    this.time.delayedCall(1200, () => {
-      let msg = `${this.playerCreature.nickname} gained experience!`;
-      if (levels > 0) {
-        msg += ` Leveled up to ${this.playerCreature.level}!`;
-      }
-      this.messageText.setText(msg);
-
-      this.time.delayedCall(1500, () => {
-        this.returnToOverworld();
-      });
-    });
-  }
-
-  private onPlayerFainted(): void {
-    // Check for other alive party members
-    const nextAlive = this.save.party.find(c => c.currentHp > 0 && c.uid !== this.playerCreature.uid);
-
-    if (nextAlive) {
-      this.messageText.setText(`${this.playerCreature.nickname} fainted! Send next creature?`);
-      this.tweens.add({
-        targets: this.playerGfx,
-        alpha: 0,
-        duration: 400,
-      });
-      this.time.delayedCall(1000, () => {
-        this.showSwitchMenu();
-      });
-    } else {
-      this.state = 'ended';
-      this.messageText.setText('All your creatures fainted! You blacked out...');
-      this.tweens.add({
-        targets: this.playerGfx,
-        alpha: 0,
-        duration: 400,
-      });
-      this.time.delayedCall(2000, () => {
-        // Heal all creatures and return
-        this.save.party.forEach(c => { c.currentHp = c.maxHp; });
-        saveGame(this.save);
-        this.returnToOverworld();
-      });
-    }
-  }
-
-  private doCatch(): void {
-    this.clearButtons();
-    this.state = 'catch_anim';
-
-    const result = attemptCatch(this.wildCreature);
-
+  private playCatchAnimation(catchResult: CatchAttemptResult, actionResult?: BattleActionResult): void {
     this.messageText.setText('You threw a capture orb!');
 
     // Animate catch
@@ -423,7 +406,7 @@ export class BattleScene extends Phaser.Scene {
         // Shake animation
         let shakesDone = 0;
         const doShake = () => {
-          if (shakesDone < result.shakes) {
+          if (shakesDone < catchResult.shakes) {
             this.messageText.setText('...');
             this.tweens.add({
               targets: catchGfx,
@@ -437,38 +420,27 @@ export class BattleScene extends Phaser.Scene {
             });
           } else {
             // Result
-            if (result.success) {
+            if (catchResult.success) {
               this.messageText.setText(`Gotcha! ${this.wildCreature.nickname} was caught!`);
               catchGfx.destroy();
               this.wildGfx.setAlpha(0);
 
-              if (this.save.party.length < 6) {
-                this.save.party.push(this.wildCreature);
-              } else {
-                this.save.box.push(this.wildCreature);
-                this.messageText.setText(
-                  `${this.wildCreature.nickname} was caught! Party full — sent to box.`
-                );
-              }
-              this.save.caught++;
-              saveGame(this.save);
-
-              this.time.delayedCall(2000, () => this.returnToOverworld());
-            } else {
+              this.time.delayedCall(2000, () => {
+                this.handleBattleEnd(true, true);
+              });
+            } else if (actionResult?.plannedTurns) {
+              // Failed catch with enemy attack
               this.messageText.setText(`Oh no! ${this.wildCreature.nickname} broke free!`);
               catchGfx.destroy();
-
               this.time.delayedCall(1000, () => {
-                // Enemy gets a free attack
-                const enemyMove = aiPickMove(this.wildCreature);
-                const enemyResult = executeTurn(this.wildCreature, this.playerCreature, enemyMove);
-                this.showTurnResult(enemyResult, false, () => {
-                  if (this.playerCreature.currentHp <= 0) {
-                    this.onPlayerFainted();
-                    return;
-                  }
-                  this.showActionMenu();
-                });
+                this.playPlannedTurnSequence(actionResult.plannedTurns!, 0, actionResult);
+              });
+            } else {
+              // Simple failed catch
+              this.messageText.setText(`Oh no! ${this.wildCreature.nickname} broke free!`);
+              catchGfx.destroy();
+              this.time.delayedCall(1000, () => {
+                this.showActionMenu();
               });
             }
           }
@@ -478,42 +450,80 @@ export class BattleScene extends Phaser.Scene {
     });
   }
 
-  private doRun(): void {
-    this.clearButtons();
-    // Running always succeeds (can be tweaked)
-    const escaped = Math.random() < 0.8 || this.playerCreature.speed > this.wildCreature.speed;
-
-    if (escaped) {
-      this.messageText.setText('Got away safely!');
-      this.time.delayedCall(1000, () => this.returnToOverworld());
-    } else {
-      this.messageText.setText("Couldn't escape!");
-      this.time.delayedCall(800, () => {
-        const enemyMove = aiPickMove(this.wildCreature);
-        const result = executeTurn(this.wildCreature, this.playerCreature, enemyMove);
-        this.showTurnResult(result, false, () => {
-          if (this.playerCreature.currentHp <= 0) {
-            this.onPlayerFainted();
-            return;
-          }
-          this.showActionMenu();
-        });
+  private afterTurnAnimations(result: BattleActionResult): void {
+    if (result.battleEnded) {
+      if (result.wildFainted) {
+        this.playFaintAnimation(false);
+      }
+      if (result.playerFainted && !result.switchRequired) {
+        this.playFaintAnimation(true);
+      }
+      this.messageText.setText(result.message);
+      this.time.delayedCall(2000, () => {
+        this.handleBattleEnd(result.victory ?? false, result.caught);
       });
+      return;
     }
+
+    if (result.switchRequired) {
+      this.playFaintAnimation(true);
+      this.messageText.setText(result.message);
+      this.time.delayedCall(1000, () => {
+        this.showSwitchMenu(true); // forced switch after faint
+      });
+      return;
+    }
+
+    this.messageText.setText(result.message);
+    this.time.delayedCall(800, () => {
+      this.showActionMenu();
+    });
+  }
+
+  private handleBattleEnd(victory: boolean, caught?: boolean): void {
+    if (victory && !caught) {
+      this.playFaintAnimation(false);
+    } else if (!victory) {
+      this.playFaintAnimation(true);
+    }
+
+    saveGame(this.save);
+    this.time.delayedCall(2000, () => {
+      this.scene.start('OverworldScene', { save: this.save });
+    });
+  }
+
+  // ─── UI Helpers ──────────────────────────────────────────────
+
+  private updateHpBars(): void {
+    const w = this.cameras.main.width;
+    const h = this.cameras.main.height;
+    const playerCreature = this.stateMachine.getPlayerCreature();
+
+    this.drawHpBar(this.playerHpBar, 30, h * 0.58 + 25, 200, playerCreature.currentHp, playerCreature.maxHp);
+    this.drawHpBar(this.wildHpBar, w - 230, 45, 200, this.wildCreature.currentHp, this.wildCreature.maxHp);
+
+    this.playerInfoText.setText(`${playerCreature.nickname}  Lv.${playerCreature.level}`);
+    this.wildInfoText.setText(`${this.wildCreature.nickname}  Lv.${this.wildCreature.level}`);
   }
 
   private refreshCreatureGraphics(): void {
     const w = this.cameras.main.width;
     const h = this.cameras.main.height;
     this.playerGfx.destroy();
-    const species = getSpeciesById(this.playerCreature.speciesId)!;
+    const species = getSpeciesById(this.stateMachine.getPlayerCreature().speciesId)!;
     this.playerGfx = drawCreature(this, w * 0.25, h * 0.42, species.shape, false);
     this.updateHpBars();
   }
 
-  private returnToOverworld(): void {
-    saveGame(this.save);
-    this.scene.start('OverworldScene', { save: this.save });
+  private playFaintAnimation(isPlayer: boolean): void {
+    const target = isPlayer ? this.playerGfx : this.wildGfx;
+    this.tweens.add({
+      targets: target,
+      alpha: 0,
+      y: target.y + 30,
+      duration: 600,
+    });
   }
 
   private createButton(
@@ -537,7 +547,7 @@ export class BattleScene extends Phaser.Scene {
     const zone = this.add.zone(x + w / 2, y + h / 2, w, h).setInteractive({ useHandCursor: true });
     zone.on('pointerover', () => { bg.clear(); bg.fillStyle(baseColor, 1); bg.fillRoundedRect(x, y, w, h, 5); bg.lineStyle(2, 0xaaaacc, 1); bg.strokeRoundedRect(x, y, w, h, 5); });
     zone.on('pointerout', () => { bg.clear(); bg.fillStyle(baseColor, 0.8); bg.fillRoundedRect(x, y, w, h, 5); bg.lineStyle(1, 0x666688, 1); bg.strokeRoundedRect(x, y, w, h, 5); });
-    zone.on('pointerdown', () => { if (this.state === 'choosing') callback(); });
+    zone.on('pointerdown', () => { if (this.stateMachine.canTakeAction()) callback(); });
 
     container.add([bg, text, zone]);
     return container;
