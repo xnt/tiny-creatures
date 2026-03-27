@@ -98,6 +98,6 @@ export class StarterSelectScene extends Phaser.Scene {
       version: SAVE_VERSION,
     };
     saveGame(save);
-    this.scene.start('OverworldScene', { save });
+    this.scene.start('OverworldScene', { save, fresh: true });
   }
 }

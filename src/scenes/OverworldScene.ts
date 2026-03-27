@@ -4,51 +4,79 @@ import {
   EncounterSystem,
   OverworldHub,
   OverworldMenuController,
-  TouchInputController,
+  OverworldInputController,
+  OverworldMapGenerator,
+  OverworldMapRenderer,
+  TerrainQueries,
   MapItemSystem,
   Terrain,
-  TERRAIN_COLORS,
+  GeneratedMap,
 } from './systems';
 import { RandomSource, defaultRandom } from '../core/random';
 
 const TILE = 32;
-const MAP_W = 25;
-const MAP_H = 19;
 const PLAYER_SPEED = 160;
+
+import { shouldRegenerateMap } from './overworldHelpers';
+export { shouldRegenerateMap };
 
 export class OverworldScene extends Phaser.Scene {
   private save!: SaveData;
   private player!: Phaser.GameObjects.Graphics;
-  private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
-  private wasd!: Record<string, Phaser.Input.Keyboard.Key>;
-  private map: Terrain[][] = [];
   private playerVelX = 0;
   private playerVelY = 0;
   private random: RandomSource = defaultRandom;
+
+  // Map data and systems
+  private mapData!: GeneratedMap;
+  private terrainQueries!: TerrainQueries;
+  private mapRenderer!: OverworldMapRenderer;
+  private mapGenerator!: OverworldMapGenerator;
 
   // Systems
   private encounterSystem!: EncounterSystem;
   private hub!: OverworldHub;
   private menuController!: OverworldMenuController;
-  private touchInput!: TouchInputController;
+  private inputController!: OverworldInputController;
   private mapItemSystem!: MapItemSystem;
 
   constructor() {
     super({ key: 'OverworldScene' });
   }
 
-  init(data: { save: SaveData }): void {
+  init(data: { save: SaveData; fresh?: boolean }): void {
     this.save = data.save;
+
+    // Clear map data for fresh starts to ensure new map generation
+    if (shouldRegenerateMap(data.fresh, this.mapData)) {
+      this.mapData = undefined as unknown as GeneratedMap;
+      this.mapRenderer?.destroy();
+    }
   }
 
   create(): void {
-    this.generateMap();
-    this.drawMap();
+    // Initialize map generation (only if not already loaded)
+    if (!this.mapData) {
+      this.mapGenerator = new OverworldMapGenerator(this.random);
+      this.mapData = this.mapGenerator.generate(this.save.playerX, this.save.playerY, TILE);
+      this.terrainQueries = new TerrainQueries(this.mapData, undefined, TILE);
+    }
+
+    // Re-render the map (Phaser graphics don't survive scene shutdown)
+    this.mapRenderer = new OverworldMapRenderer(this);
+    this.mapRenderer.render(this.mapData);
 
     // Initialize systems
     this.encounterSystem = new EncounterSystem(this, this.save);
-    this.touchInput = new TouchInputController(this);
-    this.mapItemSystem = new MapItemSystem(this, this.save, this.map, TILE, MAP_W, MAP_H);
+    this.inputController = new OverworldInputController(this);
+    this.mapItemSystem = new MapItemSystem(
+      this,
+      this.save,
+      this.mapData.terrain,
+      TILE,
+      this.mapData.width,
+      this.mapData.height,
+    );
     this.mapItemSystem.placeItems();
 
     // Player character (simple triangle)
@@ -56,24 +84,13 @@ export class OverworldScene extends Phaser.Scene {
     this.player.setPosition(this.save.playerX, this.save.playerY);
     this.drawPlayer();
 
-    // Input
-    if (this.input.keyboard) {
-      this.cursors = this.input.keyboard.createCursorKeys();
-      this.wasd = {
-        W: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W),
-        A: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
-        S: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
-        D: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
-      };
-    }
-
     // Initialize HUD and menu (needs to be after player is created for callbacks)
     this.hub = new OverworldHub(this, this.save, () => this.menuController.toggleMainMenu());
     this.menuController = new OverworldMenuController(
       this,
       this.save,
       () => ({ x: this.player.x, y: this.player.y }),
-      () => this.isNearWater(),
+      () => this.terrainQueries.hasAdjacentWaterAtPosition(this.player.x, this.player.y),
       (water) => this.triggerEncounter(water),
     );
   }
@@ -82,37 +99,28 @@ export class OverworldScene extends Phaser.Scene {
     // Close popup if clicking outside
     if (this.menuController.isPopupVisible()) return; // Pause game while popup is open
 
-    // Movement
+    // Movement (via input controller - merges keyboard + touch)
     this.playerVelX = 0;
     this.playerVelY = 0;
 
-    const dpadDir = this.touchInput.getDirection();
-    const left = this.cursors?.left.isDown || this.wasd?.A.isDown || dpadDir.x < 0;
-    const right = this.cursors?.right.isDown || this.wasd?.D.isDown || dpadDir.x > 0;
-    const up = this.cursors?.up.isDown || this.wasd?.W.isDown || dpadDir.y < 0;
-    const down = this.cursors?.down.isDown || this.wasd?.S.isDown || dpadDir.y > 0;
-
-    if (left) this.playerVelX = -PLAYER_SPEED;
-    else if (right) this.playerVelX = PLAYER_SPEED;
-    if (up) this.playerVelY = -PLAYER_SPEED;
-    else if (down) this.playerVelY = PLAYER_SPEED;
+    const intent = this.inputController.getMovementIntent();
+    if (intent.x < 0) this.playerVelX = -PLAYER_SPEED;
+    else if (intent.x > 0) this.playerVelX = PLAYER_SPEED;
+    if (intent.y < 0) this.playerVelY = -PLAYER_SPEED;
+    else if (intent.y > 0) this.playerVelY = PLAYER_SPEED;
 
     const dt = delta / 1000;
     let nx = this.player.x + this.playerVelX * dt;
     let ny = this.player.y + this.playerVelY * dt;
 
-    // Clamp to map bounds
-    nx = Phaser.Math.Clamp(nx, TILE, MAP_W * TILE - TILE);
-    ny = Phaser.Math.Clamp(ny, TILE + 30, MAP_H * TILE - TILE);
+    // Clamp to map bounds using terrain queries
+    const clamped = this.terrainQueries.clampToBounds(nx, ny);
+    nx = clamped.x;
+    ny = clamped.y;
 
-    // Collision check — block trees and water
-    const tileX = Math.floor(nx / TILE);
-    const tileY = Math.floor(ny / TILE);
-    if (tileX >= 0 && tileX < MAP_W && tileY >= 0 && tileY < MAP_H) {
-      const terrain = this.map[tileY]?.[tileX];
-      if (terrain !== Terrain.Tree && terrain !== Terrain.Water) {
-        this.player.setPosition(nx, ny);
-      }
+    // Collision check — block trees and water using terrain queries
+    if (this.terrainQueries.isPositionWalkable(nx, ny)) {
+      this.player.setPosition(nx, ny);
     }
 
     // Check for item pickups
@@ -125,7 +133,7 @@ export class OverworldScene extends Phaser.Scene {
         this.player.x,
         this.player.y,
         this.isMoving(),
-        this.map,
+        this.mapData.terrain,
         TILE,
       );
       if (result.triggered) {
@@ -136,78 +144,6 @@ export class OverworldScene extends Phaser.Scene {
 
   private isMoving(): boolean {
     return this.playerVelX !== 0 || this.playerVelY !== 0;
-  }
-
-  private generateMap(): void {
-    this.map = [];
-    for (let y = 0; y < MAP_H; y++) {
-      const row: Terrain[] = [];
-      for (let x = 0; x < MAP_W; x++) {
-        // Border trees
-        if (x === 0 || x === MAP_W - 1 || y === 0 || y === MAP_H - 1) {
-          row.push(Terrain.Tree);
-          continue;
-        }
-        const r = this.random.random();
-        if (r < 0.08) row.push(Terrain.Tree);
-        else if (r < 0.14) row.push(Terrain.Water);
-        else if (r < 0.40) row.push(Terrain.TallGrass);
-        else if (r < 0.55) row.push(Terrain.Path);
-        else row.push(Terrain.Grass);
-      }
-      this.map.push(row);
-    }
-
-    // Ensure player start area is walkable
-    const sx = Math.floor(this.save.playerX / TILE);
-    const sy = Math.floor(this.save.playerY / TILE);
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const tx = sx + dx;
-        const ty = sy + dy;
-        if (ty >= 0 && ty < MAP_H && tx >= 0 && tx < MAP_W) {
-          this.map[ty][tx] = Terrain.Grass;
-        }
-      }
-    }
-  }
-
-  private drawMap(): void {
-    const g = this.add.graphics();
-    for (let y = 0; y < MAP_H; y++) {
-      for (let x = 0; x < MAP_W; x++) {
-        const terrain = this.map[y][x];
-        g.fillStyle(TERRAIN_COLORS[terrain], 1);
-        g.fillRect(x * TILE, y * TILE, TILE, TILE);
-
-        // Add detail to tall grass
-        if (terrain === Terrain.TallGrass) {
-          g.fillStyle(0x388e3c, 0.5);
-          g.fillRect(x * TILE + 4, y * TILE + 4, 3, 12);
-          g.fillRect(x * TILE + 14, y * TILE + 2, 3, 14);
-          g.fillRect(x * TILE + 24, y * TILE + 6, 3, 10);
-        }
-
-        // Tree detail
-        if (terrain === Terrain.Tree) {
-          g.fillStyle(0x795548, 1);
-          g.fillRect(x * TILE + 12, y * TILE + 18, 8, 14);
-          g.fillStyle(0x2e7d32, 1);
-          g.fillCircle(x * TILE + 16, y * TILE + 14, 12);
-        }
-
-        // Water waves
-        if (terrain === Terrain.Water) {
-          g.lineStyle(1, 0x64b5f6, 0.4);
-          g.beginPath();
-          g.moveTo(x * TILE + 4, y * TILE + 16);
-          g.lineTo(x * TILE + 12, y * TILE + 12);
-          g.lineTo(x * TILE + 20, y * TILE + 16);
-          g.lineTo(x * TILE + 28, y * TILE + 12);
-          g.strokePath();
-        }
-      }
-    }
   }
 
   private drawPlayer(): void {
@@ -310,24 +246,5 @@ export class OverworldScene extends Phaser.Scene {
 
   private triggerEncounter(waterEncounter = false): void {
     this.encounterSystem.triggerEncounter(waterEncounter, this.player.x, this.player.y);
-  }
-
-  private isNearWater(): boolean {
-    const playerTileX = Math.floor(this.player.x / TILE);
-    const playerTileY = Math.floor(this.player.y / TILE);
-
-    // Check adjacent tiles for water
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const tx = playerTileX + dx;
-        const ty = playerTileY + dy;
-        if (ty >= 0 && ty < MAP_H && tx >= 0 && tx < MAP_W) {
-          if (this.map[ty][tx] === Terrain.Water) {
-            return true;
-          }
-        }
-      }
-    }
-    return false;
   }
 }
